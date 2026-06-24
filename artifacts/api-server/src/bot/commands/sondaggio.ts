@@ -2,9 +2,11 @@ import {
   ChatInputCommandInteraction,
   SlashCommandBuilder,
   EmbedBuilder,
+  AttachmentBuilder,
   PermissionFlagsBits,
   type TextChannel,
 } from "discord.js";
+import { join } from "node:path";
 import { loadConfig, saveConfig } from "../storage.js";
 import { fetchAvailableQuests, promoImageHighRes, type WvQuest } from "../wolvesville.js";
 
@@ -18,6 +20,11 @@ export const data = new SlashCommandBuilder()
 
 export const VOTE_EMOJIS = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"];
 const MISSIONS_PER_MESSAGE = 3;
+
+// Asset paths (copied to dist/assets/ at build time)
+const ASSETS_DIR = join(__dirname, "assets");
+const GEMME_PATH = join(ASSETS_DIR, "gemme.png");
+const MONETA_PATH = join(ASSETS_DIR, "moneta.png");
 
 export async function execute(interaction: ChatInputCommandInteraction): Promise<void> {
   await interaction.deferReply({ ephemeral: true });
@@ -66,6 +73,12 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     return;
   }
 
+  // ── Ordina: prima gemme, poi monete ────────────────────────
+  const sorted = [
+    ...quests.filter((q) => q.purchasableWithGems),
+    ...quests.filter((q) => !q.purchasableWithGems),
+  ];
+
   const pollChannel = guild.channels.cache.find(
     (c) => c.isTextBased() && !c.isThread() && c.name === config.pollChannelName
   ) as TextChannel | undefined;
@@ -78,6 +91,10 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
   }
 
   const dataFine = interaction.options.getString("data_fine") ?? "";
+
+  // Attachment files (referenced by name in embeds)
+  const gemmeFile = new AttachmentBuilder(GEMME_PATH, { name: "gemme.png" });
+  const monetaFile = new AttachmentBuilder(MONETA_PATH, { name: "moneta.png" });
 
   // ── Intro ─────────────────────────────────────────────────
   const intro = [
@@ -93,39 +110,53 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
   // ── Batch: 3 missioni per messaggio ───────────────────────
   const pollMessageIds: string[] = [];
 
-  for (let batchStart = 0; batchStart < quests.length; batchStart += MISSIONS_PER_MESSAGE) {
-    const batch = quests.slice(batchStart, batchStart + MISSIONS_PER_MESSAGE);
+  for (let batchStart = 0; batchStart < sorted.length; batchStart += MISSIONS_PER_MESSAGE) {
+    const batch = sorted.slice(batchStart, batchStart + MISSIONS_PER_MESSAGE);
 
     const batchEmbeds = batch.map((quest, idx) => {
       const globalIdx = batchStart + idx;
       const emoji = VOTE_EMOJIS[globalIdx] ?? `${globalIdx + 1}`;
       const imageUrl = promoImageHighRes(quest.promoImageUrl);
+      const isGems = quest.purchasableWithGems;
+
       const color = quest.promoImagePrimaryColor
         ? parseInt(quest.promoImagePrimaryColor.replace("#", ""), 16)
         : 0x8b0000;
 
+      const costLabel = isGems
+        ? "Missione con costo in gemme"
+        : "Missione con costo in monete";
+      const costIcon = isGems ? "attachment://gemme.png" : "attachment://moneta.png";
+
       return new EmbedBuilder()
-        .setTitle(`${emoji} Missione ${globalIdx + 1}`)
+        .setTitle(`${emoji} Missione ${globalIdx + 1} — ${costLabel}`)
         .setImage(imageUrl)
+        .setThumbnail(costIcon)
         .setColor(isNaN(color) ? 0x8b0000 : color);
     });
 
-    const msg = await pollChannel.send({ embeds: batchEmbeds });
+    // Check which cost types appear in this batch to include only needed files
+    const batchHasGems = batch.some((q) => q.purchasableWithGems);
+    const batchHasCoins = batch.some((q) => !q.purchasableWithGems);
+    const files: AttachmentBuilder[] = [];
+    if (batchHasGems) files.push(gemmeFile);
+    if (batchHasCoins) files.push(monetaFile);
+
+    const msg = await pollChannel.send({ embeds: batchEmbeds, files });
     pollMessageIds.push(msg.id);
 
-    // Add number reactions for each mission in this batch
+    // Number reactions for each mission in the batch
     for (let idx = 0; idx < batch.length; idx++) {
-      const globalIdx = batchStart + idx;
-      const emoji = VOTE_EMOJIS[globalIdx];
+      const emoji = VOTE_EMOJIS[batchStart + idx];
       if (emoji) await msg.react(emoji);
     }
   }
 
-  // ── Salva il sondaggio attivo per il voto esclusivo ───────
+  // ── Salva il sondaggio attivo (per voto esclusivo) ─────────
   config.activePoll = {
     channelId: pollChannel.id,
     messageIds: pollMessageIds,
-    questCount: quests.length,
+    questCount: sorted.length,
     createdAt: new Date().toISOString(),
   };
   saveConfig(config);
@@ -138,10 +169,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
       (c) => c.isTextBased() && !c.isThread() && c.name === channelName
     ) as TextChannel | undefined;
 
-    if (!notifyChannel) {
-      notifyResults.push(`⚠️ #${channelName}: non trovato`);
-      continue;
-    }
+    if (!notifyChannel) { notifyResults.push(`⚠️ #${channelName}: non trovato`); continue; }
 
     await notifyChannel.send({
       content:
@@ -151,12 +179,14 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     notifyResults.push(`✅ Notifica inviata in #${channelName}`);
   }
 
-  const totalMessages = Math.ceil(quests.length / MISSIONS_PER_MESSAGE);
+  // ── Risposta ─────────────────────────────────────────────
+  const gemsCount = sorted.filter((q) => q.purchasableWithGems).length;
+  const coinsCount = sorted.filter((q) => !q.purchasableWithGems).length;
   const replyLines = [
     `✅ **Sondaggio pubblicato!**`,
     `📊 Canale: **#${config.pollChannelName}**`,
-    `🎯 Missioni: **${quests.length}** in **${totalMessages}** messaggi`,
-    `🗳️ Voto esclusivo attivo — ogni membro può votare una sola missione`,
+    `💎 Missioni a gemme: **${gemsCount}** | 🪙 Missioni a monete: **${coinsCount}**`,
+    `📨 Messaggi inviati: **${pollMessageIds.length}**`,
   ];
   if (notifyResults.length > 0) replyLines.push("", "**Notifiche:**", ...notifyResults);
 
