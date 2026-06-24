@@ -8,12 +8,25 @@
   ],
   "activePoll": {
     "channelId": "1519378341751161045",
+    "introMessageId": "1519390145093042366",
     "messageIds": [
-      "1519387284036784162",
-      "1519387291083084020",
-      "1519387298481967136"
+      "1519390145642762294",
+      "1519390152533999740",
+      "1519390160314433638"
     ],
     "questCount": 8,
-    "createdAt": "2026-06-24T17:02:41.978Z"
-  }
+    "questLabels": [
+      "1️⃣ — Gemme",
+      "2️⃣ — Gemme",
+      "3️⃣ — Gemme",
+      "4️⃣ — Gemme",
+      "5️⃣ — Monete",
+      "6️⃣ — Monete",
+      "7️⃣ — Monete",
+      "8️⃣ — Monete"
+    ],
+    "createdAt": "2026-06-24T17:14:04.447Z"
+  },
+  "pollDurationHours": 0,
+  "pingRoleName": "Membro"
 }
