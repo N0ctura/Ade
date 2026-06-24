@@ -14,8 +14,10 @@ COPY artifacts/ ./artifacts/
 COPY lib/ ./lib/
 COPY scripts/ ./scripts/
 
-# Installa le dipendenze
-RUN pnpm install --frozen-lockfile
+# Installa le dipendenze approvando gli script di build (necessario per esbuild)
+RUN pnpm install --frozen-lockfile --ignore-scripts
+RUN pnpm approve-builds --all || true
+RUN pnpm rebuild
 
 # Build del progetto
 RUN pnpm run build
