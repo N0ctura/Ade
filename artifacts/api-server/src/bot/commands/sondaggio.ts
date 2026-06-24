@@ -2,20 +2,17 @@ import {
   ChatInputCommandInteraction,
   SlashCommandBuilder,
   EmbedBuilder,
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
-  AttachmentBuilder,
   PermissionFlagsBits,
+  type TextChannel,
 } from "discord.js";
 import type { MissionSkin } from "../types.js";
-import { BOT_CONFIG } from "../config.js";
+import { loadConfig } from "../storage.js";
 
 export const data = new SlashCommandBuilder()
   .setName("sondaggio")
   .setDescription("Crea un sondaggio per le nuove missioni di Wolvesville")
   .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages)
-  // --- required prima ---
+  // required first
   .addStringOption((opt) =>
     opt.setName("titolo").setDescription("Titolo del sondaggio missione").setRequired(true)
   )
@@ -25,7 +22,7 @@ export const data = new SlashCommandBuilder()
   .addStringOption((opt) =>
     opt.setName("skin1_url").setDescription("URL immagine skin 1").setRequired(true)
   )
-  // --- opzionali dopo ---
+  // optional after
   .addStringOption((opt) =>
     opt.setName("descrizione").setDescription("Descrizione della missione").setRequired(false)
   )
@@ -60,6 +57,22 @@ export const data = new SlashCommandBuilder()
 export async function execute(interaction: ChatInputCommandInteraction): Promise<void> {
   await interaction.deferReply({ ephemeral: true });
 
+  const guild = interaction.guild;
+  if (!guild) {
+    await interaction.editReply({ content: "❌ Questo comando funziona solo in un server." });
+    return;
+  }
+
+  const config = loadConfig();
+
+  if (!config.pollChannelName) {
+    await interaction.editReply({
+      content:
+        "❌ Il canale sondaggi non è ancora configurato!\nUsa prima `/impostazioni` per impostare i canali.",
+    });
+    return;
+  }
+
   const titolo = interaction.options.getString("titolo", true);
   const descrizione = interaction.options.getString("descrizione") ?? "";
   const dataFine = interaction.options.getString("data_fine") ?? "";
@@ -73,49 +86,38 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     }
   }
 
-  if (skins.length === 0) {
+  // Trova canale sondaggi per nome
+  const pollChannel = guild.channels.cache.find(
+    (c) => c.isTextBased() && !c.isThread() && c.name === config.pollChannelName
+  ) as TextChannel | undefined;
+
+  if (!pollChannel) {
     await interaction.editReply({
-      content: "❌ Devi aggiungere almeno una skin con nome e URL immagine.",
+      content: `❌ Canale **#${config.pollChannelName}** non trovato. Usa \`/impostazioni\` per aggiornare la configurazione.`,
     });
     return;
   }
 
-  const pollChannelId = BOT_CONFIG.pollChannelId;
-  if (!pollChannelId) {
-    await interaction.editReply({
-      content:
-        "❌ Il canale sondaggi non è configurato. Imposta `DISCORD_POLL_CHANNEL_ID` nelle variabili d'ambiente.",
-    });
-    return;
-  }
-
-  const channel = interaction.guild?.channels.cache.get(pollChannelId);
-  if (!channel || !channel.isTextBased()) {
-    await interaction.editReply({
-      content: `❌ Canale sondaggi non trovato (ID: ${pollChannelId}). Verifica che il bot abbia accesso al canale.`,
-    });
-    return;
-  }
-
+  // Messaggio header
   const headerEmbed = new EmbedBuilder()
     .setTitle(`🐺 ${titolo}`)
     .setDescription(
       [
-        descrizione ? descrizione : "Nuove missioni disponibili su Wolvesville!",
+        descrizione || "Nuove missioni disponibili su Wolvesville!",
         "",
         `**${skins.length} skin disponibil${skins.length === 1 ? "e" : "i"}**`,
         dataFine ? `⏰ Sondaggio aperto fino al: **${dataFine}**` : "",
         "",
-        "👇 **Reagisci ai messaggi delle skin che vuoi votare!**",
+        "👇 **Reagisci con ✅ per partecipare, ❌ per non partecipare, 🤔 se ci stai ancora pensando!**",
       ]
-        .filter((l) => l !== undefined)
+        .filter(Boolean)
         .join("\n")
     )
     .setColor(0x8b0000)
     .setTimestamp()
     .setFooter({ text: "Wolvesville Mission Poll • " + new Date().toLocaleDateString("it-IT") });
 
-  await channel.send({ embeds: [headerEmbed] });
+  await pollChannel.send({ embeds: [headerEmbed] });
 
   const VOTE_EMOJIS = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣"];
 
@@ -130,11 +132,9 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
       .setColor(0x8b0000)
       .setFooter({ text: `Skin ${i + 1} di ${skins.length}` });
 
-    if (skin.description) {
-      skinEmbed.setDescription(skin.description);
-    }
+    if (skin.description) skinEmbed.setDescription(skin.description);
 
-    const msg = await channel.send({ embeds: [skinEmbed] });
+    const msg = await pollChannel.send({ embeds: [skinEmbed] });
     await msg.react("✅");
     await msg.react("❌");
     await msg.react("🤔");
@@ -143,20 +143,23 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
   const closingEmbed = new EmbedBuilder()
     .setDescription(
       "✅ = **Voglio partecipare** | ❌ = **Non mi interessa** | 🤔 = **Ci penso**\n\n" +
-        "📢 Dopo aver votato, comunica la tua partecipazione agli altri membri!"
+        "📢 Dopo aver votato, comunica la tua partecipazione agli altri membri del clan!"
     )
     .setColor(0x8b0000);
 
-  await channel.send({ embeds: [closingEmbed] });
+  await pollChannel.send({ embeds: [closingEmbed] });
 
-  const notifyChannelIds = BOT_CONFIG.notifyChannelIds;
+  // Notifiche negli altri canali
   const notifyResults: string[] = [];
+  for (const channelName of config.notifyChannelNames) {
+    if (channelName === config.pollChannelName) continue;
 
-  for (const notifyId of notifyChannelIds) {
-    if (notifyId === pollChannelId) continue;
-    const notifyChannel = interaction.guild?.channels.cache.get(notifyId);
-    if (!notifyChannel || !notifyChannel.isTextBased()) {
-      notifyResults.push(`⚠️ Canale ${notifyId}: non trovato o non testuale`);
+    const notifyChannel = guild.channels.cache.find(
+      (c) => c.isTextBased() && !c.isThread() && c.name === channelName
+    ) as TextChannel | undefined;
+
+    if (!notifyChannel) {
+      notifyResults.push(`⚠️ #${channelName}: non trovato`);
       continue;
     }
 
@@ -166,18 +169,18 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
         `Sono usciti i nuovi sondaggi per le missioni di Wolvesville!\n\n` +
           `📊 **${titolo}** — ${skins.length} skin disponibil${skins.length === 1 ? "e" : "i"}\n\n` +
           `Andate a votare e **comunicate la vostra partecipazione** al clan! 💪\n\n` +
-          `👉 Vai al canale <#${pollChannelId}>`
+          `👉 Vai al canale **#${config.pollChannelName}**`
       )
       .setColor(0xff6600)
       .setTimestamp();
 
     await notifyChannel.send({ embeds: [notifyEmbed] });
-    notifyResults.push(`✅ Notifica inviata in <#${notifyId}>`);
+    notifyResults.push(`✅ Notifica inviata in #${channelName}`);
   }
 
   const replyLines = [
     `✅ **Sondaggio pubblicato con successo!**`,
-    `📊 Canale: <#${pollChannelId}>`,
+    `📊 Canale: **#${config.pollChannelName}**`,
     `🖼️ Skin inserite: ${skins.length}`,
   ];
   if (notifyResults.length > 0) {
