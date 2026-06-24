@@ -29,17 +29,31 @@ const ASSETS_DIR = join(__dirname, "assets");
 const GEMME_PATH = join(ASSETS_DIR, "gemme.png");
 const MONETA_PATH = join(ASSETS_DIR, "moneta.png");
 
-// Exported so the button handler in index.ts can reuse it
+/**
+ * Build a human-readable label for a quest (used in the closing message).
+ * e.g. "1️⃣ — Gemme" or "3️⃣ — Monete"
+ */
+function questLabel(quest: WvQuest, globalIdx: number): string {
+  const emoji = VOTE_EMOJIS[globalIdx] ?? `${globalIdx + 1}`;
+  return `${emoji} — ${quest.purchasableWithGems ? "Gemme" : "Monete"}`;
+}
+
+/**
+ * Publish poll messages and return their IDs.
+ * Exported so the Rimescolo button handler in index.ts can reuse it.
+ */
 export async function publishPoll(
   pollChannel: TextChannel,
   quests: WvQuest[],
   dataFine: string
-): Promise<{ introMessageId: string; messageIds: string[] }> {
+): Promise<{ introMessageId: string; messageIds: string[]; questLabels: string[] }> {
   // Sort: gems first, then coins
   const sorted = [
     ...quests.filter((q) => q.purchasableWithGems),
     ...quests.filter((q) => !q.purchasableWithGems),
   ];
+
+  const labels = sorted.map((q, i) => questLabel(q, i));
 
   const gemmeFile = new AttachmentBuilder(GEMME_PATH, { name: "gemme.png" });
   const monetaFile = new AttachmentBuilder(MONETA_PATH, { name: "moneta.png" });
@@ -51,7 +65,7 @@ export async function publishPoll(
     .setStyle(ButtonStyle.Secondary);
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(rimescoloBtn);
 
-  // Intro message with button
+  // Intro message
   const introContent = [
     `🐺 **Ecco le missioni di questa settimana!**`,
     `Vota il numero della missione che vuoi fare. Puoi votare **una sola missione**.`,
@@ -60,11 +74,7 @@ export async function publishPoll(
     .filter(Boolean)
     .join("\n");
 
-  const introMsg: Message = await pollChannel.send({
-    content: introContent,
-    components: [row],
-  });
-
+  const introMsg: Message = await pollChannel.send({ content: introContent, components: [row] });
   const pollMessageIds: string[] = [];
 
   for (let batchStart = 0; batchStart < sorted.length; batchStart += MISSIONS_PER_MESSAGE) {
@@ -77,12 +87,11 @@ export async function publishPoll(
       const color = quest.promoImagePrimaryColor
         ? parseInt(quest.promoImagePrimaryColor.replace("#", ""), 16)
         : 0x8b0000;
-      const costIcon = isGems ? "attachment://gemme.png" : "attachment://moneta.png";
 
       return new EmbedBuilder()
         .setTitle(`${emoji} — ${isGems ? "Gemme" : "Monete"}`)
-        .setImage(quest.promoImageUrl) // 1x image (original, not @2x) — more compact on mobile
-        .setThumbnail(costIcon)
+        .setImage(quest.promoImageUrl)
+        .setThumbnail(isGems ? "attachment://gemme.png" : "attachment://moneta.png")
         .setColor(isNaN(color) ? 0x8b0000 : color);
     });
 
@@ -101,7 +110,7 @@ export async function publishPoll(
     }
   }
 
-  return { introMessageId: introMsg.id, messageIds: pollMessageIds };
+  return { introMessageId: introMsg.id, messageIds: pollMessageIds, questLabels: labels };
 }
 
 export async function execute(interaction: ChatInputCommandInteraction): Promise<void> {
@@ -160,18 +169,33 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
   }
 
   const dataFine = interaction.options.getString("data_fine") ?? "";
-  const { introMessageId, messageIds } = await publishPoll(pollChannel, quests, dataFine);
+  const { introMessageId, messageIds, questLabels } = await publishPoll(pollChannel, quests, dataFine);
+
+  // Calculate closesAt if a duration is set
+  const durationHours = config.pollDurationHours ?? 0;
+  const closesAt =
+    durationHours > 0
+      ? new Date(Date.now() + durationHours * 60 * 60 * 1000).toISOString()
+      : undefined;
 
   config.activePoll = {
     channelId: pollChannel.id,
     introMessageId,
     messageIds,
     questCount: quests.length,
+    questLabels,
     createdAt: new Date().toISOString(),
+    closesAt,
   };
   saveConfig(config);
 
-  // Notifiche
+  // Schedule auto-close if needed (imported lazily to avoid circular deps)
+  if (closesAt) {
+    const { schedulePollClose } = await import("../poll-timer.js");
+    schedulePollClose(interaction.client, closesAt);
+  }
+
+  // Notifications
   const notifyResults: string[] = [];
   for (const channelName of config.notifyChannelNames) {
     if (channelName === config.pollChannelName) continue;
@@ -191,6 +215,9 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     `✅ **Sondaggio pubblicato!**`,
     `📊 Canale: **#${config.pollChannelName}**`,
     `🎯 Missioni: **${quests.length}**`,
+    closesAt
+      ? `⏱️ Chiusura automatica: **${new Date(closesAt).toLocaleString("it-IT")}**`
+      : `⏱️ Nessun timer impostato`,
   ];
   if (notifyResults.length > 0) replyLines.push("", "**Notifiche:**", ...notifyResults);
   await interaction.editReply({ content: replyLines.join("\n") });

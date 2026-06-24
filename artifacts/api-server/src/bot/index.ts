@@ -17,6 +17,7 @@ import { BOT_CONFIG } from "./config.js";
 import { loadConfig, saveConfig } from "./storage.js";
 import { VOTE_EMOJIS, publishPoll } from "./commands/sondaggio.js";
 import { shuffleQuests, fetchAvailableQuests } from "./wolvesville.js";
+import { schedulePollClose, cancelPollTimer } from "./poll-timer.js";
 
 type BotCommand = typeof sondaggioCommand | typeof impostazioniCommand;
 
@@ -68,6 +69,13 @@ export async function startBot(): Promise<void> {
         logger.error({ err, guildId }, "Errore registrazione comandi nel server");
       }
     }
+
+    // ── Ripristina timer se c'è un sondaggio attivo persistito ──
+    const config = loadConfig();
+    if (config.activePoll?.closesAt) {
+      logger.info({ closesAt: config.activePoll.closesAt }, "Ripristino timer sondaggio dopo riavvio");
+      schedulePollClose(client, config.activePoll.closesAt);
+    }
   });
 
   // ── Voto esclusivo ───────────────────────────────────────
@@ -102,9 +110,9 @@ export async function startBot(): Promise<void> {
     }
   });
 
-  // ── Button: Rimescolo ────────────────────────────────────
+  // ── Interazioni (bottoni + comandi slash) ────────────────
   client.on("interactionCreate", async (interaction: Interaction) => {
-    // Button handler
+    // ── Button: Rimescolo ──────────────────────────────────
     if (interaction.isButton() && interaction.customId === "rimescolo") {
       await interaction.deferReply({ ephemeral: true });
 
@@ -117,7 +125,6 @@ export async function startBot(): Promise<void> {
         return;
       }
 
-      // Shuffle via Wolvesville API
       try {
         await shuffleQuests(clanId);
       } catch (err) {
@@ -137,7 +144,6 @@ export async function startBot(): Promise<void> {
         }
       }
 
-      // Fetch new quests and republish
       let quests;
       try {
         quests = await fetchAvailableQuests(clanId);
@@ -161,15 +167,26 @@ export async function startBot(): Promise<void> {
         return;
       }
 
-      const { introMessageId, messageIds } = await publishPoll(pollChannel, quests, "");
+      const { introMessageId, messageIds, questLabels } = await publishPoll(pollChannel, quests, "");
+
+      // Preserve the original closesAt so the timer isn't extended by a reshuffle
+      const closesAt = poll?.closesAt;
       config.activePoll = {
         channelId: pollChannel.id,
         introMessageId,
         messageIds,
         questCount: quests.length,
+        questLabels,
         createdAt: new Date().toISOString(),
+        closesAt,
       };
       saveConfig(config);
+
+      // Re-schedule with the same deadline
+      if (closesAt) {
+        cancelPollTimer();
+        schedulePollClose(interaction.client, closesAt);
+      }
 
       logger.info({ questCount: quests.length }, "Sondaggio rimescolato e ripubblicato");
       await interaction.editReply({
@@ -178,7 +195,7 @@ export async function startBot(): Promise<void> {
       return;
     }
 
-    // Slash command handler
+    // ── Slash commands ──────────────────────────────────────
     if (!interaction.isChatInputCommand()) return;
     const command = commands.get(interaction.commandName);
     if (!command) return;

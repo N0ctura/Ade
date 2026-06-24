@@ -11,12 +11,16 @@ export interface ActivePoll {
   introMessageId: string;
   messageIds: string[];
   questCount: number;
+  questLabels: string[];
   createdAt: string;
+  closesAt?: string;
 }
 
 export interface BotConfig {
   pollChannelName: string | null;
   notifyChannelNames: string[];
+  pollDurationHours?: number;
+  pingRoleName?: string;
   clanId?: string;
   activePoll?: ActivePoll;
 }
