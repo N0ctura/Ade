@@ -8,6 +8,7 @@ const CONFIG_FILE = join(DATA_DIR, "bot-config.json");
 
 export interface ActivePoll {
   channelId: string;
+  introMessageId: string;
   messageIds: string[];
   questCount: number;
   createdAt: string;

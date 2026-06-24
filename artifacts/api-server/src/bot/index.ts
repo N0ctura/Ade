@@ -8,13 +8,15 @@ import {
   type Interaction,
   type MessageReaction,
   type User,
+  type TextChannel,
 } from "discord.js";
 import { logger } from "../lib/logger.js";
 import * as sondaggioCommand from "./commands/sondaggio.js";
 import * as impostazioniCommand from "./commands/impostazioni.js";
 import { BOT_CONFIG } from "./config.js";
-import { loadConfig } from "./storage.js";
-import { VOTE_EMOJIS } from "./commands/sondaggio.js";
+import { loadConfig, saveConfig } from "./storage.js";
+import { VOTE_EMOJIS, publishPoll } from "./commands/sondaggio.js";
+import { shuffleQuests, fetchAvailableQuests } from "./wolvesville.js";
 
 type BotCommand = typeof sondaggioCommand | typeof impostazioniCommand;
 
@@ -24,7 +26,6 @@ commands.set(impostazioniCommand.data.name, impostazioniCommand);
 
 export async function startBot(): Promise<void> {
   const token = BOT_CONFIG.token;
-
   if (!token) {
     logger.warn("DISCORD_BOT_TOKEN non impostato — bot Discord non avviato");
     return;
@@ -36,7 +37,6 @@ export async function startBot(): Promise<void> {
       GatewayIntentBits.GuildMessages,
       GatewayIntentBits.GuildMessageReactions,
     ],
-    // Partials needed to receive reactions on messages not in cache
     partials: [Partials.Message, Partials.Channel, Partials.Reaction],
   });
 
@@ -49,7 +49,6 @@ export async function startBot(): Promise<void> {
       impostazioniCommand.data.toJSON(),
     ];
 
-    // Clear old global commands
     try {
       await rest.put(Routes.applicationCommands(c.application.id), { body: [] });
       logger.info("Comandi globali rimossi");
@@ -57,10 +56,8 @@ export async function startBot(): Promise<void> {
       logger.warn({ err }, "Impossibile rimuovere comandi globali");
     }
 
-    // Register per-guild for instant propagation
     const guilds = c.guilds.cache;
     logger.info({ guildCount: guilds.size }, "Registrazione comandi per server...");
-
     for (const [guildId] of guilds) {
       try {
         await rest.put(Routes.applicationGuildCommands(c.application.id, guildId), {
@@ -73,56 +70,116 @@ export async function startBot(): Promise<void> {
     }
   });
 
-  // ── Voto esclusivo ──────────────────────────────────────────
+  // ── Voto esclusivo ───────────────────────────────────────
   client.on("messageReactionAdd", async (reaction: MessageReaction, user: User) => {
     if (user.bot) return;
-
-    // Fetch partial reaction/message if needed
-    if (reaction.partial) {
-      try { await reaction.fetch(); } catch { return; }
-    }
-    if (reaction.message.partial) {
-      try { await reaction.message.fetch(); } catch { return; }
-    }
+    if (reaction.partial) { try { await reaction.fetch(); } catch { return; } }
+    if (reaction.message.partial) { try { await reaction.message.fetch(); } catch { return; } }
 
     const emoji = reaction.emoji.name;
     if (!emoji || !VOTE_EMOJIS.includes(emoji)) return;
 
     const config = loadConfig();
     const poll = config.activePoll;
-    if (!poll) return;
+    if (!poll || !poll.messageIds.includes(reaction.message.id)) return;
 
-    const messageId = reaction.message.id;
-    if (!poll.messageIds.includes(messageId)) return;
-
-    // Remove user's other number-emoji reactions from ALL poll messages
     for (const pollMsgId of poll.messageIds) {
-      const targetMsg = pollMsgId === messageId
+      const targetMsg = pollMsgId === reaction.message.id
         ? reaction.message
         : await reaction.message.channel.messages.fetch(pollMsgId).catch(() => null);
-
       if (!targetMsg) continue;
 
       for (const [, msgReaction] of targetMsg.reactions.cache) {
         const rEmoji = msgReaction.emoji.name;
         if (!rEmoji || !VOTE_EMOJIS.includes(rEmoji)) continue;
-        // Skip the reaction the user just added
-        if (pollMsgId === messageId && rEmoji === emoji) continue;
-
-        // Check if this user reacted here and remove it
+        if (pollMsgId === reaction.message.id && rEmoji === emoji) continue;
         const users = await msgReaction.users.fetch();
         if (users.has(user.id)) {
           await msgReaction.users.remove(user.id).catch(() => null);
-          logger.info({ userId: user.id, removed: rEmoji, msgId: pollMsgId }, "Voto precedente rimosso");
+          logger.info({ userId: user.id, removed: rEmoji }, "Voto precedente rimosso");
         }
       }
     }
   });
 
-  // ── Comandi slash ───────────────────────────────────────────
+  // ── Button: Rimescolo ────────────────────────────────────
   client.on("interactionCreate", async (interaction: Interaction) => {
-    if (!interaction.isChatInputCommand()) return;
+    // Button handler
+    if (interaction.isButton() && interaction.customId === "rimescolo") {
+      await interaction.deferReply({ ephemeral: true });
 
+      const config = loadConfig();
+      const poll = config.activePoll;
+      const clanId = process.env["WOLVESVILLE_CLAN_ID"] ?? config.clanId ?? "";
+
+      if (!clanId) {
+        await interaction.editReply({ content: "❌ ID clan non configurato." });
+        return;
+      }
+
+      // Shuffle via Wolvesville API
+      try {
+        await shuffleQuests(clanId);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        await interaction.editReply({ content: `❌ Errore rimescolo: ${msg}` });
+        return;
+      }
+
+      // Delete old poll messages
+      if (poll && interaction.guild) {
+        const pollChannel = interaction.guild.channels.cache.get(poll.channelId) as TextChannel | undefined;
+        if (pollChannel) {
+          const toDelete = [poll.introMessageId, ...poll.messageIds];
+          for (const msgId of toDelete) {
+            await pollChannel.messages.delete(msgId).catch(() => null);
+          }
+        }
+      }
+
+      // Fetch new quests and republish
+      let quests;
+      try {
+        quests = await fetchAvailableQuests(clanId);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        await interaction.editReply({ content: `❌ Errore recupero missioni: ${msg}` });
+        return;
+      }
+
+      if (!config.pollChannelName || !interaction.guild) {
+        await interaction.editReply({ content: "❌ Configurazione mancante." });
+        return;
+      }
+
+      const pollChannel = interaction.guild.channels.cache.find(
+        (c) => c.isTextBased() && !c.isThread() && c.name === config.pollChannelName
+      ) as TextChannel | undefined;
+
+      if (!pollChannel) {
+        await interaction.editReply({ content: `❌ Canale **#${config.pollChannelName}** non trovato.` });
+        return;
+      }
+
+      const { introMessageId, messageIds } = await publishPoll(pollChannel, quests, "");
+      config.activePoll = {
+        channelId: pollChannel.id,
+        introMessageId,
+        messageIds,
+        questCount: quests.length,
+        createdAt: new Date().toISOString(),
+      };
+      saveConfig(config);
+
+      logger.info({ questCount: quests.length }, "Sondaggio rimescolato e ripubblicato");
+      await interaction.editReply({
+        content: `✅ **Missioni rimescolate!** Nuovo sondaggio pubblicato con **${quests.length}** missioni.`,
+      });
+      return;
+    }
+
+    // Slash command handler
+    if (!interaction.isChatInputCommand()) return;
     const command = commands.get(interaction.commandName);
     if (!command) return;
 

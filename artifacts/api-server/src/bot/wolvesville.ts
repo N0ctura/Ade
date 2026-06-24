@@ -68,10 +68,16 @@ export async function fetchAvatarItems(): Promise<WvAvatarItem[]> {
   return resp.json() as Promise<WvAvatarItem[]>;
 }
 
-export function promoImageHighRes(url: string): string {
-  if (!url) return url;
-  if (url.includes("@2x") || url.includes("@3x")) return url;
-  const ext = url.lastIndexOf(".");
-  if (ext === -1) return url;
-  return url.slice(0, ext) + "@2x" + url.slice(ext);
+export async function shuffleQuests(clanId: string): Promise<void> {
+  const resp = await fetch(`${WV_BASE}/clans/${clanId}/quests/available/shuffle`, {
+    method: "POST",
+    headers: headers(),
+  });
+  if (resp.status === 401) {
+    throw new Error("401_UNAUTHORIZED: Bot non autorizzato come clan bot.");
+  }
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`Shuffle error ${resp.status}: ${text}`);
+  }
 }
