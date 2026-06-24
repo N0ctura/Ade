@@ -6,10 +6,18 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = join(__dirname, "../../data");
 const CONFIG_FILE = join(DATA_DIR, "bot-config.json");
 
+export interface ActivePoll {
+  channelId: string;
+  messageIds: string[];
+  questCount: number;
+  createdAt: string;
+}
+
 export interface BotConfig {
   pollChannelName: string | null;
   notifyChannelNames: string[];
   clanId?: string;
+  activePoll?: ActivePoll;
 }
 
 const DEFAULT_CONFIG: BotConfig = {
