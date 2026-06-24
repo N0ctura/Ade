@@ -5,53 +5,24 @@ import {
   PermissionFlagsBits,
   type TextChannel,
 } from "discord.js";
-import type { MissionSkin } from "../types.js";
 import { loadConfig } from "../storage.js";
+import { fetchAvailableQuests, promoImageHighRes, type WvQuest } from "../wolvesville.js";
 
 export const data = new SlashCommandBuilder()
   .setName("sondaggio")
-  .setDescription("Crea un sondaggio per le nuove missioni di Wolvesville")
+  .setDescription("Crea un sondaggio con le missioni disponibili del clan da Wolvesville")
   .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages)
-  // required first
   .addStringOption((opt) =>
-    opt.setName("titolo").setDescription("Titolo del sondaggio missione").setRequired(true)
+    opt
+      .setName("titolo")
+      .setDescription("Titolo del sondaggio (default: 'Nuove Missioni Disponibili!')")
+      .setRequired(false)
   )
   .addStringOption((opt) =>
-    opt.setName("skin1_nome").setDescription("Nome della skin 1").setRequired(true)
-  )
-  .addStringOption((opt) =>
-    opt.setName("skin1_url").setDescription("URL immagine skin 1").setRequired(true)
-  )
-  // optional after
-  .addStringOption((opt) =>
-    opt.setName("descrizione").setDescription("Descrizione della missione").setRequired(false)
-  )
-  .addStringOption((opt) =>
-    opt.setName("data_fine").setDescription("Data fine sondaggio (es: 30 Giugno 2025)").setRequired(false)
-  )
-  .addStringOption((opt) =>
-    opt.setName("skin2_nome").setDescription("Nome della skin 2").setRequired(false)
-  )
-  .addStringOption((opt) =>
-    opt.setName("skin2_url").setDescription("URL immagine skin 2").setRequired(false)
-  )
-  .addStringOption((opt) =>
-    opt.setName("skin3_nome").setDescription("Nome della skin 3").setRequired(false)
-  )
-  .addStringOption((opt) =>
-    opt.setName("skin3_url").setDescription("URL immagine skin 3").setRequired(false)
-  )
-  .addStringOption((opt) =>
-    opt.setName("skin4_nome").setDescription("Nome della skin 4").setRequired(false)
-  )
-  .addStringOption((opt) =>
-    opt.setName("skin4_url").setDescription("URL immagine skin 4").setRequired(false)
-  )
-  .addStringOption((opt) =>
-    opt.setName("skin5_nome").setDescription("Nome della skin 5").setRequired(false)
-  )
-  .addStringOption((opt) =>
-    opt.setName("skin5_url").setDescription("URL immagine skin 5").setRequired(false)
+    opt
+      .setName("data_fine")
+      .setDescription("Data fine sondaggio (es: 30 Giugno 2025)")
+      .setRequired(false)
   );
 
 export async function execute(interaction: ChatInputCommandInteraction): Promise<void> {
@@ -67,48 +38,79 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 
   if (!config.pollChannelName) {
     await interaction.editReply({
-      content:
-        "❌ Il canale sondaggi non è ancora configurato!\nUsa prima `/impostazioni` per impostare i canali.",
+      content: "❌ Il canale sondaggi non è ancora configurato!\nUsa prima `/impostazioni` per impostare i canali.",
     });
     return;
   }
 
-  const titolo = interaction.options.getString("titolo", true);
-  const descrizione = interaction.options.getString("descrizione") ?? "";
-  const dataFine = interaction.options.getString("data_fine") ?? "";
-
-  const skins: MissionSkin[] = [];
-  for (let i = 1; i <= 5; i++) {
-    const nome = interaction.options.getString(`skin${i}_nome`);
-    const url = interaction.options.getString(`skin${i}_url`);
-    if (nome && url) {
-      skins.push({ name: nome, imageUrl: url });
-    }
+  const clanId = process.env["WOLVESVILLE_CLAN_ID"] ?? config.clanId ?? "";
+  if (!clanId) {
+    await interaction.editReply({
+      content:
+        "❌ ID clan Wolvesville non configurato.\nUsa `/impostazioni` per impostarlo.",
+    });
+    return;
   }
 
-  // Trova canale sondaggi per nome
+  // Fetch quests from Wolvesville
+  let quests: WvQuest[];
+  try {
+    quests = await fetchAvailableQuests(clanId);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.startsWith("401_UNAUTHORIZED")) {
+      await interaction.editReply({
+        content:
+          "❌ **Bot non autorizzato!**\n\n" +
+          "Il bot Wolvesville deve essere aggiunto al clan come *clan bot*.\n" +
+          "Il leader del clan deve:\n" +
+          "1. Aprire il gioco\n" +
+          "2. Andare in **Impostazioni clan**\n" +
+          "3. Selezionare la sezione **Bot**\n" +
+          "4. Aggiungere il bot con il suo ID\n\n" +
+          "Dopodiché riprova con questo comando.",
+      });
+    } else {
+      await interaction.editReply({
+        content: `❌ Errore API Wolvesville: ${msg}`,
+      });
+    }
+    return;
+  }
+
+  if (quests.length === 0) {
+    await interaction.editReply({
+      content: "ℹ️ Nessuna missione disponibile al momento per il clan.",
+    });
+    return;
+  }
+
+  // Find poll channel by name
   const pollChannel = guild.channels.cache.find(
     (c) => c.isTextBased() && !c.isThread() && c.name === config.pollChannelName
   ) as TextChannel | undefined;
 
   if (!pollChannel) {
     await interaction.editReply({
-      content: `❌ Canale **#${config.pollChannelName}** non trovato. Usa \`/impostazioni\` per aggiornare la configurazione.`,
+      content: `❌ Canale **#${config.pollChannelName}** non trovato. Usa \`/impostazioni\` per aggiornare.`,
     });
     return;
   }
 
-  // Messaggio header
+  const titolo = interaction.options.getString("titolo") ?? "🐺 Nuove Missioni Disponibili!";
+  const dataFine = interaction.options.getString("data_fine") ?? "";
+
+  // Header embed
   const headerEmbed = new EmbedBuilder()
-    .setTitle(`🐺 ${titolo}`)
+    .setTitle(titolo)
     .setDescription(
       [
-        descrizione || "Nuove missioni disponibili su Wolvesville!",
+        `Sono disponibili **${quests.length} nuove mission${quests.length === 1 ? "e" : "i"}** per il clan!`,
         "",
-        `**${skins.length} skin disponibil${skins.length === 1 ? "e" : "i"}**`,
         dataFine ? `⏰ Sondaggio aperto fino al: **${dataFine}**` : "",
         "",
-        "👇 **Reagisci con ✅ per partecipare, ❌ per non partecipare, 🤔 se ci stai ancora pensando!**",
+        "👇 **Reagisci a ogni missione che vuoi fare:**",
+        "✅ = Voglio partecipare | ❌ = Non mi interessa | 🤔 = Ci penso",
       ]
         .filter(Boolean)
         .join("\n")
@@ -119,27 +121,42 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 
   await pollChannel.send({ embeds: [headerEmbed] });
 
-  const VOTE_EMOJIS = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣"];
+  const VOTE_EMOJIS = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"];
 
-  for (let i = 0; i < skins.length; i++) {
-    const skin = skins[i];
-    if (!skin) continue;
+  for (let i = 0; i < quests.length; i++) {
+    const quest = quests[i];
+    if (!quest) continue;
     const emoji = VOTE_EMOJIS[i] ?? `${i + 1}`;
+    const imageUrl = promoImageHighRes(quest.promoImageUrl);
 
-    const skinEmbed = new EmbedBuilder()
-      .setTitle(`${emoji} ${skin.name}`)
-      .setImage(skin.imageUrl)
-      .setColor(0x8b0000)
-      .setFooter({ text: `Skin ${i + 1} di ${skins.length}` });
+    const rewardSummary = quest.rewards
+      .slice(0, 3)
+      .map((r) => {
+        if (r.type === "AVATAR_ITEM") return `🎽 x${r.amount} outfit item`;
+        if (r.type === "GOLD") return `💰 ${r.amount} gold`;
+        if (r.type === "GEM") return `💎 ${r.amount} gems`;
+        if (r.type === "XP") return `⭐ ${r.amount} XP`;
+        return `${r.type} x${r.amount}`;
+      })
+      .join("\n");
 
-    if (skin.description) skinEmbed.setDescription(skin.description);
+    const questEmbed = new EmbedBuilder()
+      .setTitle(`${emoji} Missione ${i + 1}`)
+      .setImage(imageUrl)
+      .setColor(quest.promoImagePrimaryColor ? parseInt(quest.promoImagePrimaryColor.replace("#", ""), 16) : 0x8b0000)
+      .setFooter({ text: `Missione ${i + 1} di ${quests.length}${quest.purchasableWithGems ? " • Acquistabile con gemme" : ""}` });
 
-    const msg = await pollChannel.send({ embeds: [skinEmbed] });
+    if (rewardSummary) {
+      questEmbed.setDescription(`**Ricompense:**\n${rewardSummary}`);
+    }
+
+    const msg = await pollChannel.send({ embeds: [questEmbed] });
     await msg.react("✅");
     await msg.react("❌");
     await msg.react("🤔");
   }
 
+  // Closing embed
   const closingEmbed = new EmbedBuilder()
     .setDescription(
       "✅ = **Voglio partecipare** | ❌ = **Non mi interessa** | 🤔 = **Ci penso**\n\n" +
@@ -149,11 +166,10 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 
   await pollChannel.send({ embeds: [closingEmbed] });
 
-  // Notifiche negli altri canali
+  // Send notifications
   const notifyResults: string[] = [];
   for (const channelName of config.notifyChannelNames) {
     if (channelName === config.pollChannelName) continue;
-
     const notifyChannel = guild.channels.cache.find(
       (c) => c.isTextBased() && !c.isThread() && c.name === channelName
     ) as TextChannel | undefined;
@@ -167,7 +183,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
       .setTitle("🐺 Nuovi Sondaggi Missione!")
       .setDescription(
         `Sono usciti i nuovi sondaggi per le missioni di Wolvesville!\n\n` +
-          `📊 **${titolo}** — ${skins.length} skin disponibil${skins.length === 1 ? "e" : "i"}\n\n` +
+          `📊 **${quests.length} mission${quests.length === 1 ? "e disponibile" : "i disponibili"}**\n\n` +
           `Andate a votare e **comunicate la vostra partecipazione** al clan! 💪\n\n` +
           `👉 Vai al canale **#${config.pollChannelName}**`
       )
@@ -181,7 +197,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
   const replyLines = [
     `✅ **Sondaggio pubblicato con successo!**`,
     `📊 Canale: **#${config.pollChannelName}**`,
-    `🖼️ Skin inserite: ${skins.length}`,
+    `🎯 Missioni trovate: **${quests.length}**`,
   ];
   if (notifyResults.length > 0) {
     replyLines.push("", "**Notifiche:**", ...notifyResults);

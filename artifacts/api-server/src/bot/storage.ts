@@ -9,6 +9,7 @@ const CONFIG_FILE = join(DATA_DIR, "bot-config.json");
 export interface BotConfig {
   pollChannelName: string | null;
   notifyChannelNames: string[];
+  clanId?: string;
 }
 
 const DEFAULT_CONFIG: BotConfig = {

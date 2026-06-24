@@ -18,3 +18,8 @@ expertMode = true
 [postMerge]
 path = "scripts/post-merge.sh"
 timeoutMs = 20000
+
+[userenv]
+
+[userenv.shared]
+WOLVESVILLE_CLAN_ID = "28bb9975-a9bd-4d38-a7a1-cc8fa10fbff4"
