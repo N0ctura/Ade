@@ -1,0 +1,9 @@
+{
+  "pollChannelName": "soondaggi",
+  "notifyChannelNames": [
+    "tempio-1",
+    "tempio-2",
+    "tempio-3",
+    "tempio-4"
+  ]
+}
