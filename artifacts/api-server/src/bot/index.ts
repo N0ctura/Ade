@@ -33,17 +33,32 @@ export async function startBot(): Promise<void> {
     logger.info({ tag: c.user.tag }, "Bot Discord connesso");
 
     const rest = new REST().setToken(token);
+    const commandsData = [
+      sondaggioCommand.data.toJSON(),
+      impostazioniCommand.data.toJSON(),
+    ];
+
+    // Clear old global commands (they take up to 1h to propagate, we use guild commands instead)
     try {
-      const commandsData = [
-        sondaggioCommand.data.toJSON(),
-        impostazioniCommand.data.toJSON(),
-      ];
-      await rest.put(Routes.applicationCommands(c.application.id), {
-        body: commandsData,
-      });
-      logger.info("Comandi slash registrati globalmente");
+      await rest.put(Routes.applicationCommands(c.application.id), { body: [] });
+      logger.info("Comandi globali rimossi");
     } catch (err) {
-      logger.error({ err }, "Errore nella registrazione dei comandi slash");
+      logger.warn({ err }, "Impossibile rimuovere comandi globali");
+    }
+
+    // Register per-guild for instant propagation
+    const guilds = c.guilds.cache;
+    logger.info({ guildCount: guilds.size }, "Registrazione comandi per server...");
+
+    for (const [guildId] of guilds) {
+      try {
+        await rest.put(Routes.applicationGuildCommands(c.application.id, guildId), {
+          body: commandsData,
+        });
+        logger.info({ guildId }, "Comandi slash registrati nel server");
+      } catch (err) {
+        logger.error({ err, guildId }, "Errore registrazione comandi nel server");
+      }
     }
   });
 
