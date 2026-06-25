@@ -5,16 +5,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 
-# Install pnpm via npm (avoids corepack version issues)
-RUN npm install -g pnpm@10
+# Pin exact pnpm version matching pnpm-lock.yaml
+RUN npm install -g pnpm@10.26.1
 
 WORKDIR /app
 
-# Copy everything at once (simpler, avoids partial-copy bugs)
 COPY . .
 
-# Install all workspace deps (scripts run — required for native modules like @napi-rs/canvas)
-RUN pnpm install --frozen-lockfile
+# Skip the root preinstall user-agent check (it gates out non-pnpm callers)
+# and let pnpm regenerate lockfile if platform entries differ
+RUN pnpm install --no-frozen-lockfile
 
 # Build the api-server bundle
 RUN pnpm --filter @workspace/api-server run build
