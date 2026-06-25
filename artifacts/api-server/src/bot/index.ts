@@ -37,8 +37,9 @@ export async function startBot(): Promise<void> {
       GatewayIntentBits.Guilds,
       GatewayIntentBits.GuildMessages,
       GatewayIntentBits.GuildMessageReactions,
+      GatewayIntentBits.GuildMembers,   // needed to fetch all role members for temple summaries
     ],
-    partials: [Partials.Message, Partials.Channel, Partials.Reaction],
+    partials: [Partials.Message, Partials.Channel, Partials.Reaction, Partials.GuildMember],
   });
 
   client.once("ready", async (c) => {
@@ -61,16 +62,13 @@ export async function startBot(): Promise<void> {
     logger.info({ guildCount: guilds.size }, "Registrazione comandi per server...");
     for (const [guildId] of guilds) {
       try {
-        await rest.put(Routes.applicationGuildCommands(c.application.id, guildId), {
-          body: commandsData,
-        });
+        await rest.put(Routes.applicationGuildCommands(c.application.id, guildId), { body: commandsData });
         logger.info({ guildId }, "Comandi slash registrati nel server");
       } catch (err) {
         logger.error({ err, guildId }, "Errore registrazione comandi nel server");
       }
     }
 
-    // Ripristina timer se c'è un sondaggio attivo persistito
     const config = loadConfig();
     if (config.activePoll?.closesAt) {
       logger.info({ closesAt: config.activePoll.closesAt }, "Ripristino timer sondaggio dopo riavvio");
@@ -110,7 +108,7 @@ export async function startBot(): Promise<void> {
     }
   });
 
-  // ── Interazioni (bottoni + comandi slash) ────────────────
+  // ── Interazioni ──────────────────────────────────────────
   client.on("interactionCreate", async (interaction: Interaction) => {
     // ── Button: Rimescolo ──────────────────────────────────
     if (interaction.isButton() && interaction.customId === "rimescolo") {
@@ -120,34 +118,24 @@ export async function startBot(): Promise<void> {
       const poll = config.activePoll;
       const clanId = process.env["WOLVESVILLE_CLAN_ID"] ?? config.clanId ?? "";
 
-      if (!clanId) {
-        await interaction.editReply({ content: "❌ ID clan non configurato." });
-        return;
-      }
+      if (!clanId) { await interaction.editReply({ content: "❌ ID clan non configurato." }); return; }
 
-      try {
-        await shuffleQuests(clanId);
-      } catch (err) {
+      try { await shuffleQuests(clanId); } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         await interaction.editReply({ content: `❌ Errore rimescolo: ${msg}` });
         return;
       }
 
-      // Delete old poll messages
       if (poll && interaction.guild) {
         const pollChannel = interaction.guild.channels.cache.get(poll.channelId) as TextChannel | undefined;
         if (pollChannel) {
           const toDelete = [poll.introMessageId, ...poll.messageIds];
-          for (const msgId of toDelete) {
-            await pollChannel.messages.delete(msgId).catch(() => null);
-          }
+          for (const msgId of toDelete) await pollChannel.messages.delete(msgId).catch(() => null);
         }
       }
 
       let quests;
-      try {
-        quests = await fetchAvailableQuests(clanId);
-      } catch (err) {
+      try { quests = await fetchAvailableQuests(clanId); } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         await interaction.editReply({ content: `❌ Errore recupero missioni: ${msg}` });
         return;
@@ -168,8 +156,6 @@ export async function startBot(): Promise<void> {
       }
 
       const { introMessageId, messageIds, questLabels } = await publishPoll(pollChannel, quests, "");
-
-      // Preserve the original closesAt so the timer isn't extended by a reshuffle
       const closesAt = poll?.closesAt;
       config.activePoll = {
         channelId: pollChannel.id,
@@ -182,28 +168,20 @@ export async function startBot(): Promise<void> {
       };
       saveConfig(config);
 
-      // Re-schedule with the same deadline
-      if (closesAt) {
-        cancelPollTimer();
-        schedulePollClose(interaction.client, closesAt);
-      }
+      if (closesAt) { cancelPollTimer(); schedulePollClose(interaction.client, closesAt); }
 
-      // Send rimescolo notification in notify channels
+      // Rimescolo notification in notify channels
       const messages = getMessages(config);
       for (const channelName of config.notifyChannelNames) {
         if (channelName === config.pollChannelName) continue;
         const notifyChannel = interaction.guild.channels.cache.find(
           (c) => c.isTextBased() && !c.isThread() && c.name === channelName
         ) as TextChannel | undefined;
-        if (notifyChannel) {
-          await notifyChannel.send({ content: messages.rimescolo }).catch(() => null);
-        }
+        if (notifyChannel) await notifyChannel.send({ content: messages.rimescolo }).catch(() => null);
       }
 
       logger.info({ questCount: quests.length }, "Sondaggio rimescolato e ripubblicato");
-      await interaction.editReply({
-        content: `✅ **Missioni rimescolate!** Nuovo sondaggio pubblicato con **${quests.length}** missioni.`,
-      });
+      await interaction.editReply({ content: `✅ **Missioni rimescolate!** Nuovo sondaggio pubblicato con **${quests.length}** missioni.` });
       return;
     }
 
@@ -217,17 +195,12 @@ export async function startBot(): Promise<void> {
     } catch (err) {
       logger.error({ err, command: interaction.commandName }, "Errore nell'esecuzione del comando");
       const errorMsg = { content: "❌ Si è verificato un errore. Riprova più tardi.", ephemeral: true };
-      if (interaction.replied || interaction.deferred) {
-        await interaction.followUp(errorMsg);
-      } else {
-        await interaction.reply(errorMsg);
-      }
+      if (interaction.replied || interaction.deferred) await interaction.followUp(errorMsg);
+      else await interaction.reply(errorMsg);
     }
   });
 
-  client.on("error", (err) => {
-    logger.error({ err }, "Errore client Discord");
-  });
+  client.on("error", (err) => { logger.error({ err }, "Errore client Discord"); });
 
   await client.login(token);
 }
