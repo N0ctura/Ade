@@ -14,7 +14,7 @@ import { logger } from "../lib/logger.js";
 import * as sondaggioCommand from "./commands/sondaggio.js";
 import * as impostazioniCommand from "./commands/impostazioni.js";
 import { BOT_CONFIG } from "./config.js";
-import { loadConfig, saveConfig } from "./storage.js";
+import { loadConfig, saveConfig, getMessages } from "./storage.js";
 import { VOTE_EMOJIS, publishPoll } from "./commands/sondaggio.js";
 import { shuffleQuests, fetchAvailableQuests } from "./wolvesville.js";
 import { schedulePollClose, cancelPollTimer } from "./poll-timer.js";
@@ -70,7 +70,7 @@ export async function startBot(): Promise<void> {
       }
     }
 
-    // ── Ripristina timer se c'è un sondaggio attivo persistito ──
+    // Ripristina timer se c'è un sondaggio attivo persistito
     const config = loadConfig();
     if (config.activePoll?.closesAt) {
       logger.info({ closesAt: config.activePoll.closesAt }, "Ripristino timer sondaggio dopo riavvio");
@@ -186,6 +186,18 @@ export async function startBot(): Promise<void> {
       if (closesAt) {
         cancelPollTimer();
         schedulePollClose(interaction.client, closesAt);
+      }
+
+      // Send rimescolo notification in notify channels
+      const messages = getMessages(config);
+      for (const channelName of config.notifyChannelNames) {
+        if (channelName === config.pollChannelName) continue;
+        const notifyChannel = interaction.guild.channels.cache.find(
+          (c) => c.isTextBased() && !c.isThread() && c.name === channelName
+        ) as TextChannel | undefined;
+        if (notifyChannel) {
+          await notifyChannel.send({ content: messages.rimescolo }).catch(() => null);
+        }
       }
 
       logger.info({ questCount: quests.length }, "Sondaggio rimescolato e ripubblicato");
