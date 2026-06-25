@@ -6,7 +6,7 @@ import {
   ButtonStyle,
 } from "discord.js";
 import { logger } from "../lib/logger.js";
-import { loadConfig, saveConfig } from "./storage.js";
+import { loadConfig, saveConfig, getMessages } from "./storage.js";
 import { VOTE_EMOJIS } from "./commands/sondaggio.js";
 
 let activeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -23,7 +23,6 @@ export function schedulePollClose(client: Client, closesAt: string): void {
 
   const msLeft = new Date(closesAt).getTime() - Date.now();
   if (msLeft <= 0) {
-    // Already expired — close immediately (async, fire-and-forget)
     void closePoll(client);
     return;
   }
@@ -43,20 +42,25 @@ export function cancelPollTimer(): void {
   }
 }
 
+interface VoteResult {
+  /** Indices of all winning quests (length > 1 = tie). Empty if no votes. */
+  winners: number[];
+  maxVotes: number;
+}
+
 /**
- * Count votes across all poll messages, return the 0-based quest index with the most votes.
- * Returns -1 if no votes were cast.
+ * Count votes across all poll messages.
+ * Returns all tied winners (or empty array if no votes).
  */
 async function countVotes(
   client: Client,
   channelId: string,
   messageIds: string[],
   questCount: number
-): Promise<number> {
+): Promise<VoteResult> {
   const voteCounts = new Array<number>(questCount).fill(0);
 
-  for (let msgIdx = 0; msgIdx < messageIds.length; msgIdx++) {
-    const msgId = messageIds[msgIdx]!;
+  for (const msgId of messageIds) {
     let msg;
     try {
       const channel = await client.channels.fetch(channelId) as TextChannel;
@@ -69,39 +73,36 @@ async function countVotes(
       const emojiName = reaction.emoji.name;
       if (!emojiName) continue;
       const emojiIdx = VOTE_EMOJIS.indexOf(emojiName);
-      if (emojiIdx === -1) continue;
+      if (emojiIdx === -1 || emojiIdx >= questCount) continue;
 
-      // Fetch users to exclude bots
       const users = await reaction.users.fetch().catch(() => null);
       if (!users) continue;
       const humanVotes = users.filter((u) => !u.bot).size;
-      if (emojiIdx < questCount) {
-        voteCounts[emojiIdx] = (voteCounts[emojiIdx] ?? 0) + humanVotes;
-      }
+      voteCounts[emojiIdx] = (voteCounts[emojiIdx] ?? 0) + humanVotes;
     }
   }
 
-  let maxVotes = -1;
-  let winnerIdx = -1;
-  for (let i = 0; i < voteCounts.length; i++) {
-    const v = voteCounts[i] ?? 0;
-    if (v > maxVotes) {
-      maxVotes = v;
-      winnerIdx = i;
-    }
-  }
-  return maxVotes === 0 ? -1 : winnerIdx;
+  const maxVotes = Math.max(...voteCounts);
+  if (maxVotes === 0) return { winners: [], maxVotes: 0 };
+
+  const winners = voteCounts
+    .map((v, i) => (v === maxVotes ? i : -1))
+    .filter((i) => i !== -1);
+
+  return { winners, maxVotes };
 }
 
-/** Disable the Rimescolo button on the intro message */
+/** Disable the Rimescolo button on the LAST poll message. */
 async function disableRimescoloButton(
   client: Client,
   channelId: string,
-  introMessageId: string
+  messageIds: string[]
 ): Promise<void> {
+  const lastMsgId = messageIds[messageIds.length - 1];
+  if (!lastMsgId) return;
   try {
     const channel = await client.channels.fetch(channelId) as TextChannel;
-    const msg = await channel.messages.fetch(introMessageId);
+    const msg = await channel.messages.fetch(lastMsgId);
     const disabledRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
         .setCustomId("rimescolo")
@@ -115,6 +116,14 @@ async function disableRimescoloButton(
   }
 }
 
+/** Replace placeholders in a message template. */
+function applyTemplate(template: string, vars: Record<string, string>): string {
+  return Object.entries(vars).reduce(
+    (str, [k, v]) => str.replaceAll(`{${k}}`, v),
+    template
+  );
+}
+
 export async function closePoll(client: Client): Promise<void> {
   const config = loadConfig();
   const poll = config.activePoll;
@@ -126,12 +135,34 @@ export async function closePoll(client: Client): Promise<void> {
 
   logger.info({ channelId: poll.channelId }, "Chiusura sondaggio in corso...");
 
-  // Count votes to find winner
-  const winnerIdx = await countVotes(client, poll.channelId, poll.messageIds, poll.questCount);
-  const winnerLabel = winnerIdx >= 0 ? (poll.questLabels[winnerIdx] ?? `Missione ${winnerIdx + 1}`) : null;
+  const { winners, maxVotes } = await countVotes(
+    client,
+    poll.channelId,
+    poll.messageIds,
+    poll.questCount
+  );
 
-  // Disable Rimescolo button
-  await disableRimescoloButton(client, poll.channelId, poll.introMessageId);
+  const messages = getMessages(config);
+
+  // Disable Rimescolo button on the last mission message
+  await disableRimescoloButton(client, poll.channelId, poll.messageIds);
+
+  // Determine result type and build closing text
+  let resultText: string;
+  if (winners.length === 0) {
+    // No votes
+    resultText = messages.nessunVoto;
+  } else if (winners.length > 1) {
+    // Tie
+    const tiedLabels = winners
+      .map((i) => poll.questLabels[i] ?? `Missione ${i + 1}`)
+      .join(", ");
+    resultText = applyTemplate(messages.pareggio, { missioni: tiedLabels });
+  } else {
+    // Single winner
+    const winnerLabel = poll.questLabels[winners[0]!] ?? `Missione ${(winners[0] ?? 0) + 1}`;
+    resultText = applyTemplate(messages.missioneVinta, { missione: winnerLabel });
+  }
 
   // Find all guilds that have the poll channel
   for (const [, guild] of client.guilds.cache) {
@@ -140,21 +171,18 @@ export async function closePoll(client: Client): Promise<void> {
 
     // Find ping role
     let roleMention = "";
+    let roleId = "";
     if (config.pingRoleName) {
       const role = guild.roles.cache.find((r) => r.name === config.pingRoleName);
-      if (role) roleMention = `<@&${role.id}> `;
+      if (role) {
+        roleId = role.id;
+        roleMention = `<@&${role.id}> `;
+      }
     }
 
-    // Closing message in the poll channel
-    const winnerText = winnerLabel
-      ? `La missione di questa settimana è **"${winnerLabel}"** — se non lo avete già fatto potete andare a comunicare la vostra partecipazione nel tempio! 🏛️`
-      : "Non ci sono voti registrati — decidete insieme al clan quale missione fare!";
-
     await pollChannel.send({
-      content:
-        `${roleMention}sondaggi chiusi!!\n` +
-        winnerText,
-      allowedMentions: { roles: roleMention ? [roleMention.replace(/<@&|>/g, "")] : [] },
+      content: `${roleMention}sondaggi chiusi!!\n${resultText}`,
+      allowedMentions: { roles: roleId ? [roleId] : [] },
     });
 
     // Notifications in other channels
@@ -165,16 +193,24 @@ export async function closePoll(client: Client): Promise<void> {
       ) as TextChannel | undefined;
       if (!notifyChannel) continue;
 
-      const notifyText = winnerLabel
-        ? `🐺 **I sondaggi sono chiusi!**\nLa missione scelta è **"${winnerLabel}"**. Andate a comunicare la partecipazione nel tempio! 🏛️`
-        : `🐺 **I sondaggi sono chiusi!**\nDecidete insieme al clan quale missione fare!`;
+      let notifyText: string;
+      if (winners.length === 0) {
+        notifyText = `🐺 **I sondaggi sono chiusi!**\n${messages.nessunVoto}`;
+      } else if (winners.length > 1) {
+        const tiedLabels = winners
+          .map((i) => poll.questLabels[i] ?? `Missione ${i + 1}`)
+          .join(", ");
+        notifyText = `🐺 **I sondaggi sono chiusi!**\n${applyTemplate(messages.pareggio, { missioni: tiedLabels })}`;
+      } else {
+        const winnerLabel = poll.questLabels[winners[0]!] ?? `Missione ${(winners[0] ?? 0) + 1}`;
+        notifyText = `🐺 **I sondaggi sono chiusi!**\n${applyTemplate(messages.missioneVinta, { missione: winnerLabel })}`;
+      }
 
       await notifyChannel.send({ content: notifyText }).catch(() => null);
     }
   }
 
-  // Clear the active poll
   config.activePoll = undefined;
   saveConfig(config);
-  logger.info({ winner: winnerLabel }, "Sondaggio chiuso");
+  logger.info({ winners, maxVotes }, "Sondaggio chiuso");
 }
