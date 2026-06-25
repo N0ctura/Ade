@@ -2,7 +2,6 @@ import {
   ChatInputCommandInteraction,
   SlashCommandBuilder,
   EmbedBuilder,
-  AttachmentBuilder,
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
@@ -10,10 +9,8 @@ import {
   type TextChannel,
   type Message,
 } from "discord.js";
-import { join } from "node:path";
 import { loadConfig, saveConfig } from "../storage.js";
 import { fetchAvailableQuests, type WvQuest } from "../wolvesville.js";
-import { addNumberBadge } from "../image-badge.js";
 
 export const data = new SlashCommandBuilder()
   .setName("sondaggio")
@@ -24,10 +21,6 @@ export const data = new SlashCommandBuilder()
   );
 
 export const VOTE_EMOJIS = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"];
-
-const ASSETS_DIR = join(__dirname, "assets");
-const GEMME_PATH = join(ASSETS_DIR, "gemme.png");
-const MONETA_PATH = join(ASSETS_DIR, "moneta.png");
 
 function questLabel(quest: WvQuest, globalIdx: number): string {
   const emoji = VOTE_EMOJIS[globalIdx] ?? `${globalIdx + 1}`;
@@ -63,22 +56,7 @@ export async function publishPoll(
 
   const introMsg: Message = await pollChannel.send({ content: introContent, components: [row] });
 
-  // Generate all badge images (number overlaid on mission image)
-  const badgeBuffers = await Promise.all(
-    sorted.map((quest, idx) => addNumberBadge(quest.promoImageUrl, idx + 1))
-  );
-
-  // Each badge image gets a unique attachment name
-  // BUT we send all embeds in ONE message using the remote URL for setImage
-  // and the badge as thumbnail (attachment://badge_N.png)
-  const files: AttachmentBuilder[] = [
-    new AttachmentBuilder(GEMME_PATH, { name: "gemme.png" }),
-    new AttachmentBuilder(MONETA_PATH, { name: "moneta.png" }),
-    ...badgeBuffers.map((buf, idx) =>
-      new AttachmentBuilder(buf, { name: `badge_${idx + 1}.png` })
-    ),
-  ];
-
+  // All embeds use remote URLs — no attachments, so Discord keeps them in ONE message
   const embeds = sorted.map((quest, idx) => {
     const emoji = VOTE_EMOJIS[idx] ?? `${idx + 1}`;
     const isGems = quest.purchasableWithGems;
@@ -87,18 +65,14 @@ export async function publishPoll(
       : 0x8b0000;
 
     return new EmbedBuilder()
-      .setTitle(`${emoji} — ${isGems ? "Gemme" : "Monete"}`)
-      // Use remote URL for the main image (no attachment conflict)
+      .setTitle(`${emoji} — ${isGems ? "Gemme 💎" : "Monete 🪙"}`)
       .setImage(quest.promoImageUrl)
-      // Badge with number as thumbnail
-      .setThumbnail(`attachment://badge_${idx + 1}.png`)
       .setColor(isNaN(color) ? 0x8b0000 : color);
   });
 
-  // Send ALL missions in ONE message (Discord allows up to 10 embeds per message)
-  const msg = await pollChannel.send({ embeds, files });
+  // ONE message with all embeds (Discord supports up to 10)
+  const msg = await pollChannel.send({ embeds });
 
-  // Add vote reactions
   for (let idx = 0; idx < sorted.length; idx++) {
     const emoji = VOTE_EMOJIS[idx];
     if (emoji) await msg.react(emoji);
@@ -191,7 +165,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
   for (const channelName of config.notifyChannelNames) {
     if (channelName === config.pollChannelName) continue;
     const notifyChannel = guild.channels.cache.find(
-      (c) => c.isTextBased() && !c.isThread() && c.name === config.pollChannelName
+      (c) => c.isTextBased() && !c.isThread() && c.name === channelName
     ) as TextChannel | undefined;
     if (!notifyChannel) { notifyResults.push(`⚠️ #${channelName}: non trovato`); continue; }
     await notifyChannel.send({
