@@ -142,9 +142,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     if (msg.startsWith('401_UNAUTHORIZED')) {
       await interaction.editReply({
         content:
-          '❌ **Bot non autorizzato!**
-
-' +
+          '❌ **Bot non autorizzato!**\n\n' +
           'Il leader del clan deve aggiungere il bot in **Impostazioni clan → Bot**.',
       });
     } else {
