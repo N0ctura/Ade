@@ -41,6 +41,7 @@ function questLabel(quest: WvQuest, globalIdx: number): string {
 
 /**
  * Publish poll messages and return their IDs.
+ * The Rimescolo button is placed on the LAST mission message (not the intro).
  * Exported so the Rimescolo button handler in index.ts can reuse it.
  */
 export async function publishPoll(
@@ -59,27 +60,30 @@ export async function publishPoll(
   const gemmeFile = new AttachmentBuilder(GEMME_PATH, { name: "gemme.png" });
   const monetaFile = new AttachmentBuilder(MONETA_PATH, { name: "moneta.png" });
 
-  // Rimescolo button
+  // Rimescolo button (will be attached to the LAST mission message)
   const rimescoloBtn = new ButtonBuilder()
     .setCustomId("rimescolo")
     .setLabel("🔀 Rimescolo")
     .setStyle(ButtonStyle.Secondary);
-  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(rimescoloBtn);
+  const rimescoloRow = new ActionRowBuilder<ButtonBuilder>().addComponents(rimescoloBtn);
 
-  // Intro message
+  // Intro message — NO button here
   const introContent = [
     `🐺 **Ecco le missioni di questa settimana!**`,
-    `Vota il numero della missione che vuoi fare. Puoi votare **una sola missione**.`,
+    `Usa il menu qui sotto per votare. Puoi votare **una sola missione** (o chiedere il rimescolo).`,
     dataFine ? `⏳ Sondaggio aperto fino al **${dataFine}**` : "",
   ]
     .filter(Boolean)
     .join("\n");
 
-  const introMsg: Message = await pollChannel.send({ content: introContent, components: [row] });
+  const introMsg: Message = await pollChannel.send({ content: introContent });
   const pollMessageIds: string[] = [];
+
+  const totalBatches = Math.ceil(sorted.length / MISSIONS_PER_MESSAGE);
 
   for (let batchStart = 0; batchStart < sorted.length; batchStart += MISSIONS_PER_MESSAGE) {
     const batch = sorted.slice(batchStart, batchStart + MISSIONS_PER_MESSAGE);
+    const isLastBatch = batchStart + MISSIONS_PER_MESSAGE >= sorted.length;
 
     // Generate numbered badge images for each mission in this batch
     const batchImages = await Promise.all(
@@ -113,7 +117,12 @@ export async function publishPoll(
       files.push(new AttachmentBuilder(buf, { name: `mission_${globalIdx + 1}.png` }));
     });
 
-    const msg = await pollChannel.send({ embeds: batchEmbeds, files });
+    // Attach Rimescolo button only to the last batch
+    const msg = await pollChannel.send({
+      embeds: batchEmbeds,
+      files,
+      components: isLastBatch ? [rimescoloRow] : [],
+    });
     pollMessageIds.push(msg.id);
 
     for (let idx = 0; idx < batch.length; idx++) {
@@ -201,7 +210,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
   };
   saveConfig(config);
 
-  // Schedule auto-close if needed (imported lazily to avoid circular deps)
+  // Schedule auto-close if needed
   if (closesAt) {
     const { schedulePollClose } = await import("../poll-timer.js");
     schedulePollClose(interaction.client, closesAt);
