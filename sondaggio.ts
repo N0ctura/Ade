@@ -24,31 +24,21 @@ export const data = new SlashCommandBuilder()
   );
 
 export const VOTE_EMOJIS = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"];
-const MISSIONS_PER_MESSAGE = 3;
 
 const ASSETS_DIR = join(__dirname, "assets");
 const GEMME_PATH = join(ASSETS_DIR, "gemme.png");
 const MONETA_PATH = join(ASSETS_DIR, "moneta.png");
 
-/**
- * Build a human-readable label for a quest (used in the closing message).
- * e.g. "1️⃣ — Gemme" or "3️⃣ — Monete"
- */
 function questLabel(quest: WvQuest, globalIdx: number): string {
   const emoji = VOTE_EMOJIS[globalIdx] ?? `${globalIdx + 1}`;
   return `${emoji} — ${quest.purchasableWithGems ? "Gemme" : "Monete"}`;
 }
 
-/**
- * Publish poll messages and return their IDs.
- * Exported so the Rimescolo button handler in index.ts can reuse it.
- */
 export async function publishPoll(
   pollChannel: TextChannel,
   quests: WvQuest[],
   dataFine: string
 ): Promise<{ introMessageId: string; messageIds: string[]; questLabels: string[] }> {
-  // Sort: gems first, then coins
   const sorted = [
     ...quests.filter((q) => q.purchasableWithGems),
     ...quests.filter((q) => !q.purchasableWithGems),
@@ -56,73 +46,65 @@ export async function publishPoll(
 
   const labels = sorted.map((q, i) => questLabel(q, i));
 
-  const gemmeFile = new AttachmentBuilder(GEMME_PATH, { name: "gemme.png" });
-  const monetaFile = new AttachmentBuilder(MONETA_PATH, { name: "moneta.png" });
-
-  // Rimescolo button on the INTRO message (same as b398cd7)
+  // Rimescolo button on intro
   const rimescoloBtn = new ButtonBuilder()
     .setCustomId("rimescolo")
     .setLabel("🔀 Rimescolo")
     .setStyle(ButtonStyle.Secondary);
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(rimescoloBtn);
 
-  // Intro message with Rimescolo button
   const introContent = [
     `🐺 **Ecco le missioni di questa settimana!**`,
-    `Vota il numero della missione che vuoi fare. Puoi votare **una sola missione**.`,
+    `Usa il menu qui sotto per votare. Puoi votare **una sola missione** (o chiedere il rimescolo).`,
     dataFine ? `⏳ Sondaggio aperto fino al **${dataFine}**` : "",
   ]
     .filter(Boolean)
     .join("\n");
 
   const introMsg: Message = await pollChannel.send({ content: introContent, components: [row] });
-  const pollMessageIds: string[] = [];
 
-  for (let batchStart = 0; batchStart < sorted.length; batchStart += MISSIONS_PER_MESSAGE) {
-    const batch = sorted.slice(batchStart, batchStart + MISSIONS_PER_MESSAGE);
+  // Generate all badge images (number overlaid on mission image)
+  const badgeBuffers = await Promise.all(
+    sorted.map((quest, idx) => addNumberBadge(quest.promoImageUrl, idx + 1))
+  );
 
-    // Generate numbered badge images for each mission in this batch
-    const batchImages = await Promise.all(
-      batch.map((quest, idx) => addNumberBadge(quest.promoImageUrl, batchStart + idx + 1))
-    );
+  // Each badge image gets a unique attachment name
+  // BUT we send all embeds in ONE message using the remote URL for setImage
+  // and the badge as thumbnail (attachment://badge_N.png)
+  const files: AttachmentBuilder[] = [
+    new AttachmentBuilder(GEMME_PATH, { name: "gemme.png" }),
+    new AttachmentBuilder(MONETA_PATH, { name: "moneta.png" }),
+    ...badgeBuffers.map((buf, idx) =>
+      new AttachmentBuilder(buf, { name: `badge_${idx + 1}.png` })
+    ),
+  ];
 
-    const batchEmbeds = batch.map((quest, idx) => {
-      const globalIdx = batchStart + idx;
-      const emoji = VOTE_EMOJIS[globalIdx] ?? `${globalIdx + 1}`;
-      const isGems = quest.purchasableWithGems;
-      const color = quest.promoImagePrimaryColor
-        ? parseInt(quest.promoImagePrimaryColor.replace("#", ""), 16)
-        : 0x8b0000;
-      const imgName = `mission_${globalIdx + 1}.png`;
+  const embeds = sorted.map((quest, idx) => {
+    const emoji = VOTE_EMOJIS[idx] ?? `${idx + 1}`;
+    const isGems = quest.purchasableWithGems;
+    const color = quest.promoImagePrimaryColor
+      ? parseInt(quest.promoImagePrimaryColor.replace("#", ""), 16)
+      : 0x8b0000;
 
-      return new EmbedBuilder()
-        .setTitle(`${emoji} — ${isGems ? "Gemme" : "Monete"}`)
-        .setImage(`attachment://${imgName}`)
-        .setThumbnail(isGems ? "attachment://gemme.png" : "attachment://moneta.png")
-        .setColor(isNaN(color) ? 0x8b0000 : color);
-    });
+    return new EmbedBuilder()
+      .setTitle(`${emoji} — ${isGems ? "Gemme" : "Monete"}`)
+      // Use remote URL for the main image (no attachment conflict)
+      .setImage(quest.promoImageUrl)
+      // Badge with number as thumbnail
+      .setThumbnail(`attachment://badge_${idx + 1}.png`)
+      .setColor(isNaN(color) ? 0x8b0000 : color);
+  });
 
-    const batchHasGems = batch.some((q) => q.purchasableWithGems);
-    const batchHasCoins = batch.some((q) => !q.purchasableWithGems);
-    const files: AttachmentBuilder[] = [];
-    if (batchHasGems) files.push(gemmeFile);
-    if (batchHasCoins) files.push(monetaFile);
-    // Attach numbered mission images
-    batchImages.forEach((buf, idx) => {
-      const globalIdx = batchStart + idx;
-      files.push(new AttachmentBuilder(buf, { name: `mission_${globalIdx + 1}.png` }));
-    });
+  // Send ALL missions in ONE message (Discord allows up to 10 embeds per message)
+  const msg = await pollChannel.send({ embeds, files });
 
-    const msg = await pollChannel.send({ embeds: batchEmbeds, files });
-    pollMessageIds.push(msg.id);
-
-    for (let idx = 0; idx < batch.length; idx++) {
-      const emoji = VOTE_EMOJIS[batchStart + idx];
-      if (emoji) await msg.react(emoji);
-    }
+  // Add vote reactions
+  for (let idx = 0; idx < sorted.length; idx++) {
+    const emoji = VOTE_EMOJIS[idx];
+    if (emoji) await msg.react(emoji);
   }
 
-  return { introMessageId: introMsg.id, messageIds: pollMessageIds, questLabels: labels };
+  return { introMessageId: introMsg.id, messageIds: [msg.id], questLabels: labels };
 }
 
 export async function execute(interaction: ChatInputCommandInteraction): Promise<void> {
@@ -183,7 +165,6 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
   const dataFine = interaction.options.getString("data_fine") ?? "";
   const { introMessageId, messageIds, questLabels } = await publishPoll(pollChannel, quests, dataFine);
 
-  // Calculate closesAt if a duration is set
   const durationHours = config.pollDurationHours ?? 0;
   const closesAt =
     durationHours > 0
@@ -201,18 +182,16 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
   };
   saveConfig(config);
 
-  // Schedule auto-close if needed (imported lazily to avoid circular deps)
   if (closesAt) {
     const { schedulePollClose } = await import("../poll-timer.js");
     schedulePollClose(interaction.client, closesAt);
   }
 
-  // Notifications
   const notifyResults: string[] = [];
   for (const channelName of config.notifyChannelNames) {
     if (channelName === config.pollChannelName) continue;
     const notifyChannel = guild.channels.cache.find(
-      (c) => c.isTextBased() && !c.isThread() && c.name === channelName
+      (c) => c.isTextBased() && !c.isThread() && c.name === config.pollChannelName
     ) as TextChannel | undefined;
     if (!notifyChannel) { notifyResults.push(`⚠️ #${channelName}: non trovato`); continue; }
     await notifyChannel.send({
