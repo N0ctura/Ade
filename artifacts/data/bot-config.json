@@ -1,5 +1,5 @@
 {
-  "pollChannelName": "soondaggi",
+  "pollChannelName": "credenziali",
   "notifyChannelNames": [
     "tempio-4",
     "tempio-3",
@@ -7,13 +7,27 @@
     "tempio-1"
   ],
   "activePoll": {
-    "channelId": "1519378341751161045",
+    "channelId": "1519378323086639259",
+    "introMessageId": "1519406212314169618",
     "messageIds": [
-      "1519387284036784162",
-      "1519387291083084020",
-      "1519387298481967136"
+      "1519406213513609279",
+      "1519406219998138461",
+      "1519406226595778572"
     ],
     "questCount": 8,
-    "createdAt": "2026-06-24T17:02:41.978Z"
-  }
+    "questLabels": [
+      "1️⃣ — Gemme",
+      "2️⃣ — Gemme",
+      "3️⃣ — Gemme",
+      "4️⃣ — Gemme",
+      "5️⃣ — Monete",
+      "6️⃣ — Monete",
+      "7️⃣ — Monete",
+      "8️⃣ — Monete"
+    ],
+    "createdAt": "2026-06-24T18:17:54.611Z",
+    "closesAt": "2026-06-25T06:17:54.611Z"
+  },
+  "pollDurationHours": 12,
+  "pingRoleName": "Membro"
 }
