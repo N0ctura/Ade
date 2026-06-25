@@ -13,6 +13,7 @@ import {
 import { join } from "node:path";
 import { loadConfig, saveConfig } from "../storage.js";
 import { fetchAvailableQuests, type WvQuest } from "../wolvesville.js";
+import { addNumberBadge } from "../image-badge.js";
 
 export const data = new SlashCommandBuilder()
   .setName("sondaggio")
@@ -80,6 +81,11 @@ export async function publishPoll(
   for (let batchStart = 0; batchStart < sorted.length; batchStart += MISSIONS_PER_MESSAGE) {
     const batch = sorted.slice(batchStart, batchStart + MISSIONS_PER_MESSAGE);
 
+    // Generate numbered badge images for each mission in this batch
+    const batchImages = await Promise.all(
+      batch.map((quest, idx) => addNumberBadge(quest.promoImageUrl, batchStart + idx + 1))
+    );
+
     const batchEmbeds = batch.map((quest, idx) => {
       const globalIdx = batchStart + idx;
       const emoji = VOTE_EMOJIS[globalIdx] ?? `${globalIdx + 1}`;
@@ -87,10 +93,11 @@ export async function publishPoll(
       const color = quest.promoImagePrimaryColor
         ? parseInt(quest.promoImagePrimaryColor.replace("#", ""), 16)
         : 0x8b0000;
+      const imgName = `mission_${globalIdx + 1}.png`;
 
       return new EmbedBuilder()
         .setTitle(`${emoji} — ${isGems ? "Gemme" : "Monete"}`)
-        .setImage(quest.promoImageUrl)
+        .setImage(`attachment://${imgName}`)
         .setThumbnail(isGems ? "attachment://gemme.png" : "attachment://moneta.png")
         .setColor(isNaN(color) ? 0x8b0000 : color);
     });
@@ -100,6 +107,11 @@ export async function publishPoll(
     const files: AttachmentBuilder[] = [];
     if (batchHasGems) files.push(gemmeFile);
     if (batchHasCoins) files.push(monetaFile);
+    // Attach numbered mission images
+    batchImages.forEach((buf, idx) => {
+      const globalIdx = batchStart + idx;
+      files.push(new AttachmentBuilder(buf, { name: `mission_${globalIdx + 1}.png` }));
+    });
 
     const msg = await pollChannel.send({ embeds: batchEmbeds, files });
     pollMessageIds.push(msg.id);
