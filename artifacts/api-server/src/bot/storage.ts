@@ -16,6 +16,24 @@ export interface ActivePoll {
   closesAt?: string;
 }
 
+export interface BotMessages {
+  missioneVinta: string;
+  nessunVoto: string;
+  pareggio: string;
+  rimescolo: string;
+}
+
+export const DEFAULT_MESSAGES: BotMessages = {
+  missioneVinta:
+    'La missione di questa settimana è **"{missione}"** — se non lo avete già fatto potete andare a comunicare la vostra partecipazione nel tempio! 🏛️',
+  nessunVoto:
+    "Non ci sono voti registrati — decidete insieme al clan quale missione fare!",
+  pareggio:
+    "**Pareggio!** Le missioni {missioni} hanno la stessa quantità di voti — decidete insieme al clan quale fare! 🤝",
+  rimescolo:
+    "🔀 **Le missioni sono state rimescolate!** Nuove missioni disponibili nel canale sondaggi.",
+};
+
 export interface BotConfig {
   pollChannelName: string | null;
   notifyChannelNames: string[];
@@ -23,6 +41,7 @@ export interface BotConfig {
   pingRoleName?: string;
   clanId?: string;
   activePoll?: ActivePoll;
+  messages?: Partial<BotMessages>;
 }
 
 const DEFAULT_CONFIG: BotConfig = {
@@ -45,4 +64,9 @@ export function saveConfig(config: BotConfig): void {
     mkdirSync(DATA_DIR, { recursive: true });
   }
   writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), "utf-8");
+}
+
+/** Merge persisted messages with defaults so missing keys always have a fallback. */
+export function getMessages(config: BotConfig): BotMessages {
+  return { ...DEFAULT_MESSAGES, ...config.messages };
 }
