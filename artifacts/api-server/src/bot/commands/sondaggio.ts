@@ -62,8 +62,7 @@ export async function publishPoll(
     dataFine ? `⏳ Sondaggio aperto fino al **${dataFine}**` : '',
   ]
     .filter(Boolean)
-    .join('
-');
+    .join('\n');
 
   const introMsg: Message = await pollChannel.send({ content: introContent, components: [row] });
   const pollMessageIds: string[] = [];
@@ -220,6 +219,5 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
       : `⏱️ Nessun timer impostato`,
   ];
   if (notifyResults.length > 0) replyLines.push('', '**Notifiche:**', ...notifyResults);
-  await interaction.editReply({ content: replyLines.join('
-') });
+  await interaction.editReply({ content: replyLines.join('\n') });
 }
