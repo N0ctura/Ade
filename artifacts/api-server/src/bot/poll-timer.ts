@@ -132,8 +132,7 @@ async function sendTempleSummaries(
       }
     }
 
-    const lines: string[] = ['📊 **Riepilogo voti — ' + role.name + '**
-'];
+    const lines: string[] = ['📊 **Riepilogo voti — ' + role.name + '**\n'];
     if (voted.length > 0) {
       lines.push('✅ **Hanno votato (' + voted.length + '):**');
       lines.push(...voted);
@@ -148,8 +147,7 @@ async function sendTempleSummaries(
       lines.push('🎉 **Tutti hanno votato!**');
     }
 
-    await templeChannel.send({ content: lines.join('
-') }).catch((err) => {
+    await templeChannel.send({ content: lines.join('\n') }).catch((err) => {
       logger.warn({ err, channel: templeChannel.name }, 'Impossibile inviare riepilogo nel canale tempio');
     });
     logger.info({ role: role.name, channel: templeChannel.name, voted: voted.length, notVoted: notVoted.length }, 'Riepilogo voti inviato');
@@ -194,8 +192,7 @@ export async function closePoll(client: Client): Promise<void> {
     }
 
     await pollChannel.send({
-      content: roleMention + 'sondaggi chiusi!!
-' + resultText,
+      content: roleMention + 'sondaggi chiusi!!\n' + resultText,
       allowedMentions: { roles: roleId ? [roleId] : [] },
     });
 
@@ -208,16 +205,13 @@ export async function closePoll(client: Client): Promise<void> {
 
       let notifyText: string;
       if (winners.length === 0) {
-        notifyText = '🐺 **I sondaggi sono chiusi!**
-' + messages.nessunVoto;
+        notifyText = '🐺 **I sondaggi sono chiusi!**\n' + messages.nessunVoto;
       } else if (winners.length > 1) {
         const tiedLabels = winners.map((i) => poll.questLabels[i] ?? ('Missione ' + (i + 1))).join(', ');
-        notifyText = '🐺 **I sondaggi sono chiusi!**
-' + applyTemplate(messages.pareggio, { missioni: tiedLabels });
+        notifyText = '🐺 **I sondaggi sono chiusi!**\n' + applyTemplate(messages.pareggio, { missioni: tiedLabels });
       } else {
         const winnerLabel = poll.questLabels[winners[0]!] ?? ('Missione ' + ((winners[0] ?? 0) + 1));
-        notifyText = '🐺 **I sondaggi sono chiusi!**
-' + applyTemplate(messages.missioneVinta, { missione: winnerLabel });
+        notifyText = '🐺 **I sondaggi sono chiusi!**\n' + applyTemplate(messages.missioneVinta, { missione: winnerLabel });
       }
       await notifyChannel.send({ content: notifyText }).catch(() => null);
     }
