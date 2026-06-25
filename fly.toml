@@ -1,9 +1,0 @@
-app = "ade"
-primary_region = "cdg"
-
-[build]
-  dockerfile = "Dockerfile"
-
-[[vm]]
-  size = "shared-cpu-1x"
-  memory = "512mb"
