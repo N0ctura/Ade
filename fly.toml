@@ -1,0 +1,11 @@
+app = "ade"
+primary_region = "cdg"
+
+[build]
+
+[processes]
+  app = "node --enable-source-maps ./artifacts/api-server/dist/index.mjs"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
