@@ -3,8 +3,6 @@ import {
   type Guild,
   type TextChannel,
   ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
   StringSelectMenuBuilder,
 } from "discord.js";
 import { logger } from "../lib/logger.js";
@@ -33,20 +31,27 @@ function normalize(str: string): string {
     .replace(/[^a-z0-9]/g, "");
 }
 
+const RIMESCOLO_IDX = -1;
+
 interface VoteResult {
+  /** Winning quest index, or RIMESCOLO_IDX if rimescolo won */
   winners: number[];
   maxVotes: number;
   voterMap: Map<string, string>;
 }
 
-/** Count votes from the stored select-menu votes (userId → questIdx). */
 function countVotes(poll: ActivePoll): VoteResult {
   const votes = poll.votes ?? {};
-  const voteCounts = new Array<number>(poll.questCount).fill(0);
+  // voteCounts[0..questCount-1] = missions, voteCounts[questCount] = rimescolo
+  const voteCounts = new Array<number>(poll.questCount + 1).fill(0);
   const voterMap = new Map<string, string>();
 
-  for (const [userId, questIdx] of Object.entries(votes)) {
-    if (questIdx >= 0 && questIdx < poll.questCount) {
+  for (const [userId, v] of Object.entries(votes)) {
+    const questIdx = v as number;
+    if (questIdx === RIMESCOLO_IDX) {
+      voteCounts[poll.questCount] = (voteCounts[poll.questCount] ?? 0) + 1;
+      voterMap.set(userId, "🔀 Rimescolo");
+    } else if (questIdx >= 0 && questIdx < poll.questCount) {
       voteCounts[questIdx] = (voteCounts[questIdx] ?? 0) + 1;
       voterMap.set(userId, poll.questLabels[questIdx] ?? `Missione ${questIdx + 1}`);
     }
@@ -54,27 +59,21 @@ function countVotes(poll: ActivePoll): VoteResult {
 
   const maxVotes = Math.max(...voteCounts, 0);
   if (maxVotes === 0) return { winners: [], maxVotes: 0, voterMap };
-  const winners = voteCounts.map((v, i) => (v === maxVotes ? i : -1)).filter((i) => i !== -1);
+
+  const winners: number[] = [];
+  for (let i = 0; i <= poll.questCount; i++) {
+    if ((voteCounts[i] ?? 0) === maxVotes) {
+      // map rimescolo bucket back to RIMESCOLO_IDX
+      winners.push(i === poll.questCount ? RIMESCOLO_IDX : i);
+    }
+  }
   return { winners, maxVotes, voterMap };
 }
 
-/** Disable the Rimescolo button on the intro message. */
-async function disableRimescoloButton(client: Client, channelId: string, introMessageId: string): Promise<void> {
+async function disableSelectMenu(client: Client, channelId: string, messageId: string): Promise<void> {
   try {
     const channel = await client.channels.fetch(channelId) as TextChannel;
-    const msg = await channel.messages.fetch(introMessageId);
-    const disabledRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder().setCustomId("rimescolo").setLabel("🔀 Rimescolo").setStyle(ButtonStyle.Secondary).setDisabled(true)
-    );
-    await msg.edit({ components: [disabledRow] });
-  } catch { /* non-fatal */ }
-}
-
-/** Disable the select-menu on the mission message. */
-async function disableSelectMenu(client: Client, channelId: string, missionMessageId: string): Promise<void> {
-  try {
-    const channel = await client.channels.fetch(channelId) as TextChannel;
-    const msg = await channel.messages.fetch(missionMessageId);
+    const msg = await channel.messages.fetch(messageId);
     const disabledMenu = new StringSelectMenuBuilder()
       .setCustomId("vote_mission")
       .setPlaceholder("Sondaggio chiuso")
@@ -128,7 +127,7 @@ async function sendTempleSummaries(
     await templeChannel.send({ content: lines.join("\n") }).catch((err) => {
       logger.warn({ err, channel: templeChannel.name }, "Impossibile inviare riepilogo nel canale tempio");
     });
-    logger.info({ role: role.name, channel: templeChannel.name, voted: voted.length, notVoted: notVoted.length }, "Riepilogo voti inviato");
+    logger.info({ role: role.name, channel: templeChannel.name }, "Riepilogo voti inviato");
   }
 }
 
@@ -142,15 +141,29 @@ export async function closePoll(client: Client): Promise<void> {
   const { winners, maxVotes, voterMap } = countVotes(poll);
   const messages = getMessages(config);
 
-  await disableRimescoloButton(client, poll.channelId, poll.introMessageId);
-  if (poll.messageIds[0]) await disableSelectMenu(client, poll.channelId, poll.messageIds[0]);
+  // Disable the select menu on the poll message
+  if (poll.messageIds[0]) {
+    await disableSelectMenu(client, poll.channelId, poll.messageIds[0]);
+  }
 
+  // Build result text
   let resultText: string;
   if (winners.length === 0) {
     resultText = messages.nessunVoto;
   } else if (winners.length > 1) {
-    const tiedLabels = winners.map((i) => poll.questLabels[i] ?? `Missione ${i + 1}`).join(", ");
-    resultText = applyTemplate(messages.pareggio, { missioni: tiedLabels });
+    // Check if rimescolo is among winners
+    const rimescoloWon = winners.includes(RIMESCOLO_IDX);
+    const missionWinners = winners.filter((i) => i !== RIMESCOLO_IDX);
+    if (rimescoloWon && missionWinners.length === 0) {
+      resultText = `🔀 **Il clan ha votato per il Rimescolo!** Ricordati di rimescolare le missioni manualmente nel gioco, poi pubblica un nuovo sondaggio.`;
+    } else {
+      const tiedLabels = winners.map((i) =>
+        i === RIMESCOLO_IDX ? "🔀 Rimescolo" : (poll.questLabels[i] ?? `Missione ${i + 1}`)
+      ).join(", ");
+      resultText = applyTemplate(messages.pareggio, { missioni: tiedLabels });
+    }
+  } else if (winners[0] === RIMESCOLO_IDX) {
+    resultText = `🔀 **Il clan ha votato per il Rimescolo!** Ricordati di rimescolare le missioni manualmente nel gioco, poi pubblica un nuovo sondaggio.`;
   } else {
     const winnerLabel = poll.questLabels[winners[0]!] ?? `Missione ${(winners[0] ?? 0) + 1}`;
     resultText = applyTemplate(messages.missioneVinta, { missione: winnerLabel });
@@ -178,18 +191,7 @@ export async function closePoll(client: Client): Promise<void> {
         (c) => c.isTextBased() && !c.isThread() && c.name === channelName
       ) as TextChannel | undefined;
       if (!notifyChannel) continue;
-
-      let notifyText: string;
-      if (winners.length === 0) {
-        notifyText = `🐺 **I sondaggi sono chiusi!**\n${messages.nessunVoto}`;
-      } else if (winners.length > 1) {
-        const tiedLabels = winners.map((i) => poll.questLabels[i] ?? `Missione ${i + 1}`).join(", ");
-        notifyText = `🐺 **I sondaggi sono chiusi!**\n${applyTemplate(messages.pareggio, { missioni: tiedLabels })}`;
-      } else {
-        const winnerLabel = poll.questLabels[winners[0]!] ?? `Missione ${(winners[0] ?? 0) + 1}`;
-        notifyText = `🐺 **I sondaggi sono chiusi!**\n${applyTemplate(messages.missioneVinta, { missione: winnerLabel })}`;
-      }
-      await notifyChannel.send({ content: notifyText }).catch(() => null);
+      await notifyChannel.send({ content: `🐺 **I sondaggi sono chiusi!**\n${resultText}` }).catch(() => null);
     }
 
     await sendTempleSummaries(guild, voterMap, poll.channelId);
