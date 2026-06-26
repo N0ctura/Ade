@@ -24,7 +24,10 @@ export const data = new SlashCommandBuilder()
   );
 
 export const VOTE_EMOJIS = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
-const MISSIONS_PER_MESSAGE = 3;
+
+// All missions in ONE message (Discord supports up to 10 embeds per message,
+// and Wolvesville clans never have more than 10 available missions).
+const MISSIONS_PER_MESSAGE = 10;
 
 const ASSETS_DIR = join(__dirname, 'assets');
 const GEMME_PATH = join(ASSETS_DIR, 'gemme.png');
@@ -40,15 +43,13 @@ export async function publishPoll(
   quests: WvQuest[],
   dataFine: string
 ): Promise<{ introMessageId: string; messageIds: string[]; questLabels: string[] }> {
+  // Sort: gems first, then coins
   const sorted = [
     ...quests.filter((q) => q.purchasableWithGems),
     ...quests.filter((q) => !q.purchasableWithGems),
   ];
 
   const labels = sorted.map((q, i) => questLabel(q, i));
-
-  const gemmeFile = new AttachmentBuilder(GEMME_PATH, { name: 'gemme.png' });
-  const monetaFile = new AttachmentBuilder(MONETA_PATH, { name: 'moneta.png' });
 
   const rimescoloBtn = new ButtonBuilder()
     .setCustomId('rimescolo')
@@ -70,6 +71,7 @@ export async function publishPoll(
   for (let batchStart = 0; batchStart < sorted.length; batchStart += MISSIONS_PER_MESSAGE) {
     const batch = sorted.slice(batchStart, batchStart + MISSIONS_PER_MESSAGE);
 
+    // Generate numbered badge images for each mission in this batch
     const batchImages = await Promise.all(
       batch.map((quest, idx) => addNumberBadge(quest.promoImageUrl, batchStart + idx + 1))
     );
@@ -92,9 +94,11 @@ export async function publishPoll(
 
     const batchHasGems = batch.some((q) => q.purchasableWithGems);
     const batchHasCoins = batch.some((q) => !q.purchasableWithGems);
+
+    // Create fresh attachment instances per batch to avoid stream-reuse issues
     const files: AttachmentBuilder[] = [];
-    if (batchHasGems) files.push(gemmeFile);
-    if (batchHasCoins) files.push(monetaFile);
+    if (batchHasGems) files.push(new AttachmentBuilder(GEMME_PATH, { name: 'gemme.png' }));
+    if (batchHasCoins) files.push(new AttachmentBuilder(MONETA_PATH, { name: 'moneta.png' }));
     batchImages.forEach((buf, idx) => {
       const globalIdx = batchStart + idx;
       files.push(new AttachmentBuilder(buf, { name: `mission_${globalIdx + 1}.png` }));
@@ -201,8 +205,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     if (!notifyChannel) { notifyResults.push(`⚠️ #${channelName}: non trovato`); continue; }
     await notifyChannel.send({
       content:
-        `🐺 **Sono usciti i nuovi sondaggi missione!**
-` +
+        `🐺 **Sono usciti i nuovi sondaggi missione!**\n` +
         `Vai in **#${config.pollChannelName}**, vota la missione che vuoi fare e comunicalo al clan! 💪`,
     });
     notifyResults.push(`✅ Notifica inviata in #${channelName}`);
