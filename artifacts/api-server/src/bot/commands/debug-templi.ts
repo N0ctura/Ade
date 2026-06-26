@@ -3,20 +3,13 @@ import {
   SlashCommandBuilder,
   PermissionFlagsBits,
 } from "discord.js";
+import { normalize } from "../normalize.js";
+import { loadConfig, saveConfig } from "../storage.js";
 
 export const data = new SlashCommandBuilder()
   .setName("debug-templi")
-  .setDescription("Mostra il match ruoli↔canali per il riepilogo templi (solo admin)")
+  .setDescription("Mostra il match ruoli↔canali e aggiorna l'archivio ruoli (solo admin)")
   .setDefaultMemberPermissions(PermissionFlagsBits.Administrator);
-
-function normalize(str: string): string {
-  return str
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[\u2018\u2019\u201a\u201b\u2032\u2035\u0060\u00b4]/g, "")
-    .replace(/[^a-z0-9]/g, "");
-}
 
 export async function execute(interaction: ChatInputCommandInteraction): Promise<void> {
   await interaction.deferReply({ ephemeral: true });
@@ -39,12 +32,39 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
   // Collect roles (excluding @everyone)
   const roles = guild.roles.cache.filter((r) => r.name !== "@everyone");
 
+  // ── Aggiorna archivio ruoli nella config ─────────────────────────────────
+  // Classifica ogni ruolo in base al match con un canale:
+  //   templeRoleNames    → ha un canale corrispondente (ruoli tempio)
+  //   thresholdRoleNames → nessun canale, 0 membri  (soglie XP, ecc.)
+  //   leaderRoleNames    → nessun canale, ha membri  (co-capi, admin, ecc.)
+  const templeRoleNames: string[] = [];
+  const thresholdRoleNames: string[] = [];
+  const leaderRoleNames: string[] = [];
+
+  for (const [, role] of roles) {
+    const normRole = normalize(role.name);
+    if (channelByNorm.has(normRole)) {
+      templeRoleNames.push(role.name);
+    } else if (role.members.size === 0) {
+      thresholdRoleNames.push(role.name);
+    } else {
+      leaderRoleNames.push(role.name);
+    }
+  }
+
+  const config = loadConfig();
+  config.templeRoleNames = templeRoleNames;
+  config.thresholdRoleNames = thresholdRoleNames;
+  config.leaderRoleNames = leaderRoleNames;
+  saveConfig(config);
+
+  // ── Costruzione risposta ──────────────────────────────────────────────────
   const lines: string[] = [
-    `**Debug riepilogo templi**`,
+    `**🔍 Debug riepilogo templi**`,
     `Canali testo trovati: **${channelByNorm.size}**`,
-    `Ruoli trovati: **${roles.size}** (escluso @everyone)`,
+    `Ruoli totali: **${roles.size}** (escluso @everyone)`,
     ``,
-    `**Match ruolo → canale:**`,
+    `**🏛️ Ruoli-Tempio (hanno canale corrispondente):**`,
   ];
 
   let matchCount = 0;
@@ -53,25 +73,42 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     const matchedChannel = channelByNorm.get(normRole);
     const memberCount = role.members.size;
     if (matchedChannel) {
-      lines.push(`✅ \`${role.name}\` (${normRole}) → #${matchedChannel} — ${memberCount} membri nel ruolo`);
+      lines.push(`✅ \`${role.name}\`  →  #${matchedChannel}  (${memberCount} membri)`);
       matchCount++;
-    } else {
-      lines.push(`❌ \`${role.name}\` (${normRole}) → nessun canale corrispondente`);
     }
   }
+  if (matchCount === 0) lines.push("❌ Nessun match trovato.");
 
-  lines.push(``, `**Totale match: ${matchCount}**`);
+  lines.push(``, `**📊 Ruoli senza canale (co-capi / admin):**`);
+  if (leaderRoleNames.length > 0) {
+    for (const n of leaderRoleNames) lines.push(`• \`${n}\``);
+  } else {
+    lines.push("Nessuno.");
+  }
+
+  lines.push(``, `**⭐ Ruoli soglia XP (nessun membro attivo):**`);
+  if (thresholdRoleNames.length > 0) {
+    for (const n of thresholdRoleNames) lines.push(`• \`${n}\``);
+  } else {
+    lines.push("Nessuno.");
+  }
+
+  lines.push(
+    ``,
+    `**Totale match ruolo↔canale: ${matchCount}**`,
+    ``,
+    `✅ Archivio ruoli aggiornato nella config.`
+  );
 
   if (matchCount === 0) {
     lines.push(
       ``,
-      `⚠️ **Nessun match trovato.** Assicurati che il nome del ruolo corrisponda al nome del canale.`,
-      `Esempio: ruolo \`Tempio 1\` → canale \`#tempio-1\` (dopo normalizzazione entrambi diventano \`tempio1\`)`,
+      `⚠️ **Nessun match trovato.** Assicurati che il nome del ruolo (dopo normalizzazione) corrisponda al nome del canale.`,
+      `Esempio: ruolo \`♢🔱𝐓𝐞𝐦𝐩𝐢𝐨-𝐝𝐞𝐠𝐥𝐢-𝐀𝐛𝐢𝐬𝐬𝐢\` → canale \`#tempio-degli-abissi\` (entrambi diventano \`tempioabissi\` dopo normalizzazione)`
     );
   }
 
   const text = lines.join("\n");
-  // Discord message limit is 2000 chars; split if needed
   if (text.length <= 2000) {
     await interaction.editReply({ content: text });
   } else {
