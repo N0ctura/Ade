@@ -13,7 +13,7 @@ import * as impostazioniCommand from "./commands/impostazioni.js";
 import * as debugTempliCommand from "./commands/debug-templi.js";
 import * as fineCommand from "./commands/fine.js";
 import { BOT_CONFIG } from "./config.js";
-import { loadConfig, saveConfig } from "./storage.js";
+import { loadConfig, saveConfig, initStorage } from "./storage.js";
 import { schedulePollClose } from "./poll-timer.js";
 
 type BotCommand = typeof sondaggioCommand | typeof impostazioniCommand | typeof debugTempliCommand | typeof fineCommand;
@@ -132,5 +132,9 @@ export async function startBot(): Promise<void> {
   });
 
   client.on("error", (err) => { logger.error({ err }, "Errore client Discord"); });
+
+  // Carica config da PostgreSQL prima di connettersi a Discord
+  await initStorage();
+
   await client.login(token);
 }
