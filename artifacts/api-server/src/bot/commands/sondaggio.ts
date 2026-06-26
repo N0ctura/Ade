@@ -19,7 +19,7 @@ export const data = new SlashCommandBuilder()
   .setDescription("Crea un sondaggio con le missioni disponibili del clan da Wolvesville")
   .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages)
   .addStringOption((opt) =>
-    opt.setName("data_fine").setDescription("Data fine sondaggio (es: 30 Giugno 2025)").setRequired(false)
+    opt.setName("data_fine").setDescription("Data fine sondaggio (es: 30 Giugno 2025) — ignorato se il timer automatico è attivo").setRequired(false)
   );
 
 export const VOTE_EMOJIS = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"];
@@ -34,7 +34,8 @@ function questLabel(quest: WvQuest, globalIdx: number): string {
 export async function publishPoll(
   pollChannel: TextChannel,
   quests: WvQuest[],
-  dataFine: string
+  dataFine: string,
+  closesAt?: Date
 ): Promise<{ introMessageId: string; messageIds: string[]; questLabels: string[] }> {
   // Sort: gems first, then coins
   const sorted = [
@@ -44,7 +45,7 @@ export async function publishPoll(
 
   const labels = sorted.map((q, i) => questLabel(q, i));
 
-  // Generate numbered badge images (Discord renders plain attachments as a photo grid)
+  // Generate numbered badge images
   const badgeBuffers = await Promise.all(
     sorted.map((quest, idx) => addNumberBadge(quest.promoImageUrl, idx + 1))
   );
@@ -77,11 +78,21 @@ export async function publishPoll(
 
   const selectRow = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(selectMenu);
 
+  // Timer line — usa timestamp Discord nativo se disponibile (si aggiorna in tempo reale),
+  // altrimenti cade su dataFine testuale se fornita.
+  let timerLine = "";
+  if (closesAt) {
+    const unixTs = Math.floor(closesAt.getTime() / 1000);
+    timerLine = `⏳ Votazioni aperte — chiudono <t:${unixTs}:R> (<t:${unixTs}:f>)`;
+  } else if (dataFine) {
+    timerLine = `⏳ Sondaggio aperto fino al **${dataFine}**`;
+  }
+
   // Intro text
   const introLines = [
     `🐺 **Ecco le missioni di questa settimana!**`,
     `Usa il menu qui sotto per votare. Puoi cambiare voto in qualsiasi momento.`,
-    dataFine ? `⏳ Sondaggio aperto fino al **${dataFine}**` : ``,
+    timerLine,
     ``,
     caption,
   ].filter((l, i, arr) => l !== `` || arr[i - 1] !== ``);
@@ -154,14 +165,21 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     return;
   }
 
-  const dataFine = interaction.options.getString("data_fine") ?? "";
-  const { introMessageId, messageIds, questLabels } = await publishPoll(pollChannel, quests, dataFine);
-
+  // Calcola closesAt PRIMA di publishPoll così possiamo passarlo per il timer nel messaggio
   const durationHours = config.pollDurationHours ?? 0;
-  const closesAt =
-    durationHours > 0
-      ? new Date(Date.now() + durationHours * 60 * 60 * 1000).toISOString()
-      : undefined;
+  const closesAtDate = durationHours > 0
+    ? new Date(Date.now() + durationHours * 60 * 60 * 1000)
+    : undefined;
+
+  const dataFine = interaction.options.getString("data_fine") ?? "";
+  const { introMessageId, messageIds, questLabels } = await publishPoll(
+    pollChannel,
+    quests,
+    dataFine,
+    closesAtDate
+  );
+
+  const closesAt = closesAtDate?.toISOString();
 
   config.activePoll = {
     channelId: pollChannel.id,
