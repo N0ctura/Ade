@@ -107,6 +107,21 @@ async function dbUpsert(config: BotConfig): Promise<void> {
   }
 }
 
+async function dbEnsureTable(): Promise<void> {
+  try {
+    const { pool } = await import("@workspace/db");
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS bot_config (
+        key         TEXT PRIMARY KEY,
+        data        JSONB NOT NULL,
+        updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+      )
+    `);
+  } catch (err) {
+    logger.warn({ err }, "storage: impossibile creare tabella bot_config (potrebbe già esistere)");
+  }
+}
+
 async function dbLoad(): Promise<BotConfig | null> {
   try {
     const { db, botConfigTable } = await import("@workspace/db");
@@ -150,6 +165,9 @@ function fileSave(config: BotConfig): void {
  * Popola la cache in memoria.
  */
 export async function initStorage(): Promise<void> {
+  // Crea la tabella se non esiste ancora — nessuna azione manuale richiesta
+  await dbEnsureTable();
+
   const dbConfig = await dbLoad();
   if (dbConfig) {
     cache = dbConfig;
