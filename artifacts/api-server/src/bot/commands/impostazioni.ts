@@ -14,7 +14,7 @@ import {
   ComponentType,
   type TextChannel,
 } from "discord.js";
-import { loadConfig, saveConfig, DEFAULT_MESSAGES, type BotMessages } from "../storage.js";
+import { loadConfig, saveConfig, DEFAULT_MESSAGES, THRESHOLD_ROLE_ID_SET, type BotMessages } from "../storage.js";
 
 export const data = new SlashCommandBuilder()
   .setName("impostazioni")
@@ -101,9 +101,12 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
         .setDescription(c.topic?.slice(0, 50) ?? "Canale testuale")
     );
 
+  // Escludi @everyone, bot-managed e ruoli soglia XP (sono 36 e riempirebbero tutti gli slot).
+  // Ordina per posizione crescente: i ruoli più bassi (es. @tutti, @membri) vengono prima,
+  // così le 25 opzioni disponibili contengono i ruoli effettivamente utili da pingare.
   const guildRoles = guild.roles.cache
-    .filter((r) => r.name !== "@everyone" && !r.managed)
-    .sort((a, b) => b.position - a.position)
+    .filter((r) => r.name !== "@everyone" && !r.managed && !THRESHOLD_ROLE_ID_SET.has(r.id))
+    .sort((a, b) => a.position - b.position)
     .first(25);
 
   const roleOptions = guildRoles.map((r) =>
