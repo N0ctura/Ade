@@ -193,12 +193,18 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
   let step = 1;
 
   // ── Unified component collector (handles both selects and buttons) ──
-  const collector = interaction.channel?.createMessageComponentCollector({
+  // Use fetchReply() to get the actual ephemeral Message object so the
+  // collector is guaranteed to capture its component interactions.
+  // interaction.channel?.createMessageComponentCollector() can silently
+  // return undefined when the channel is not cached, causing all buttons
+  // to time-out with "Questa interazione non è riuscita".
+  const reply = await interaction.fetchReply();
+  const collector = reply.createMessageComponentCollector({
     filter: (i) => i.user.id === interaction.user.id,
     time: 300_000, // 5 min total
   });
 
-  collector?.on("collect", async (i) => {
+  collector.on("collect", async (i) => {
     // ── Steps 1-4: StringSelect ──────────────────────────
     if (i.isStringSelectMenu()) {
       // Step 1 — Poll channel
@@ -336,7 +342,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     }
   });
 
-  collector?.on("end", async (_, reason) => {
+  collector.on("end", async (_, reason) => {
     if (reason !== "done") {
       try {
         await interaction.editReply({
