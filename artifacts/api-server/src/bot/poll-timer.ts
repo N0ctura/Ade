@@ -7,6 +7,7 @@ import {
 } from "discord.js";
 import { logger } from "../lib/logger.js";
 import { loadConfig, saveConfig, getMessages, type ActivePoll } from "./storage.js";
+import { normalize } from "./normalize.js";
 
 let activeTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -20,15 +21,6 @@ export function schedulePollClose(client: Client, closesAt: string): void {
 
 export function cancelPollTimer(): void {
   if (activeTimer !== null) { clearTimeout(activeTimer); activeTimer = null; logger.info("Timer sondaggio annullato"); }
-}
-
-function normalize(str: string): string {
-  return str
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[\u2018\u2019\u201a\u201b\u2032\u2035\u0060\u00b4]/g, "")
-    .replace(/[^a-z0-9]/g, "");
 }
 
 const RIMESCOLO_IDX = -1;
@@ -101,6 +93,12 @@ async function sendTempleSummaries(
     return;
   }
 
+  const config = loadConfig();
+  const templeRoleNorms = new Set(
+    (config.templeRoleNames ?? []).map((n) => normalize(n))
+  );
+  const hasTempleFilter = templeRoleNorms.size > 0;
+
   // Build map: normalizedChannelName → TextChannel
   const channelByNorm = new Map<string, TextChannel>();
   for (const [, ch] of guild.channels.cache) {
@@ -116,6 +114,13 @@ async function sendTempleSummaries(
   let matchCount = 0;
   for (const [, role] of roles) {
     const normRole = normalize(role.name);
+
+    // Se la lista dei ruoli-tempio è configurata, usa solo quelli
+    if (hasTempleFilter && !templeRoleNorms.has(normRole)) {
+      logger.debug({ role: role.name }, "Ruolo non-tempio, saltato per riepilogo");
+      continue;
+    }
+
     const templeChannel = channelByNorm.get(normRole);
 
     if (!templeChannel) {
@@ -154,8 +159,21 @@ async function sendTempleSummaries(
       lines.push("🎉 **Tutti hanno votato!**");
     }
 
+    // Split if over Discord 2000 char limit
+    const text = lines.join("\n");
     try {
-      await templeChannel.send({ content: lines.join("\n") });
+      if (text.length <= 2000) {
+        await templeChannel.send({ content: text });
+      } else {
+        const chunks: string[] = [];
+        let chunk = "";
+        for (const line of lines) {
+          if (chunk.length + line.length + 1 > 1990) { chunks.push(chunk); chunk = ""; }
+          chunk += (chunk ? "\n" : "") + line;
+        }
+        if (chunk) chunks.push(chunk);
+        for (const c of chunks) await templeChannel.send({ content: c });
+      }
       logger.info({ role: role.name, channel: templeChannel.name, voted: voted.length, notVoted: notVoted.length }, "Riepilogo inviato con successo");
     } catch (err) {
       logger.warn({ err, role: role.name, channel: templeChannel.name }, "Impossibile inviare riepilogo nel canale tempio — controlla i permessi del bot");
