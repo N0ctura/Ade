@@ -36,7 +36,7 @@ export async function publishPoll(
   quests: WvQuest[],
   dataFine: string,
   closesAt?: Date
-): Promise<{ introMessageId: string; messageIds: string[]; questLabels: string[] }> {
+): Promise<{ introMessageId: string; messageIds: string[]; questLabels: string[]; questImageUrls: string[] }> {
   // Sort: gems first, then coins
   const sorted = [
     ...quests.filter((q) => q.purchasableWithGems),
@@ -44,6 +44,7 @@ export async function publishPoll(
   ];
 
   const labels = sorted.map((q, i) => questLabel(q, i));
+  const imageUrls = sorted.map((q) => q.promoImageUrl);
 
   // Generate numbered badge images
   const badgeBuffers = await Promise.all(
@@ -107,6 +108,7 @@ export async function publishPoll(
     introMessageId: pollMsg.id,
     messageIds: [pollMsg.id],
     questLabels: labels,
+    questImageUrls: imageUrls,
   };
 }
 
@@ -172,7 +174,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     : undefined;
 
   const dataFine = interaction.options.getString("data_fine") ?? "";
-  const { introMessageId, messageIds, questLabels } = await publishPoll(
+  const { introMessageId, messageIds, questLabels, questImageUrls } = await publishPoll(
     pollChannel,
     quests,
     dataFine,
@@ -187,6 +189,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     messageIds,
     questCount: quests.length,
     questLabels,
+    questImageUrls,
     createdAt: new Date().toISOString(),
     closesAt,
     votes: {},
