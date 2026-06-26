@@ -1,41 +1,38 @@
 import {
   ChatInputCommandInteraction,
   SlashCommandBuilder,
-  EmbedBuilder,
   AttachmentBuilder,
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  StringSelectMenuBuilder,
+  StringSelectMenuOptionBuilder,
   PermissionFlagsBits,
   type TextChannel,
   type Message,
-} from 'discord.js';
-import { join } from 'node:path';
-import { loadConfig, saveConfig } from '../storage.js';
-import { fetchAvailableQuests, type WvQuest } from '../wolvesville.js';
-import { addNumberBadge } from '../image-badge.js';
+} from "discord.js";
+import { join } from "node:path";
+import { loadConfig, saveConfig } from "../storage.js";
+import { fetchAvailableQuests, type WvQuest } from "../wolvesville.js";
+import { addNumberBadge } from "../image-badge.js";
 
 export const data = new SlashCommandBuilder()
-  .setName('sondaggio')
-  .setDescription('Crea un sondaggio con le missioni disponibili del clan da Wolvesville')
+  .setName("sondaggio")
+  .setDescription("Crea un sondaggio con le missioni disponibili del clan da Wolvesville")
   .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages)
   .addStringOption((opt) =>
-    opt.setName('data_fine').setDescription('Data fine sondaggio (es: 30 Giugno 2025)').setRequired(false)
+    opt.setName("data_fine").setDescription("Data fine sondaggio (es: 30 Giugno 2025)").setRequired(false)
   );
 
-export const VOTE_EMOJIS = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
+export const VOTE_EMOJIS = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"];
 
-// All missions in ONE message (Discord supports up to 10 embeds per message,
-// and Wolvesville clans never have more than 10 available missions).
-const MISSIONS_PER_MESSAGE = 10;
-
-const ASSETS_DIR = join(__dirname, 'assets');
-const GEMME_PATH = join(ASSETS_DIR, 'gemme.png');
-const MONETA_PATH = join(ASSETS_DIR, 'moneta.png');
+const ASSETS_DIR = join(__dirname, "assets");
+const GEMME_PATH = join(ASSETS_DIR, "gemme.png");
+const MONETA_PATH = join(ASSETS_DIR, "moneta.png");
 
 function questLabel(quest: WvQuest, globalIdx: number): string {
   const emoji = VOTE_EMOJIS[globalIdx] ?? `${globalIdx + 1}`;
-  return `${emoji} — ${quest.purchasableWithGems ? 'Gemme' : 'Monete'}`;
+  return `${emoji} — ${quest.purchasableWithGems ? "Gemme" : "Monete"}`;
 }
 
 export async function publishPoll(
@@ -51,69 +48,69 @@ export async function publishPoll(
 
   const labels = sorted.map((q, i) => questLabel(q, i));
 
+  // ── Intro message with Rimescolo button ──────────────────
   const rimescoloBtn = new ButtonBuilder()
-    .setCustomId('rimescolo')
-    .setLabel('🔀 Rimescolo')
+    .setCustomId("rimescolo")
+    .setLabel("🔀 Rimescolo")
     .setStyle(ButtonStyle.Secondary);
-  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(rimescoloBtn);
+  const rimescoloRow = new ActionRowBuilder<ButtonBuilder>().addComponents(rimescoloBtn);
 
-  const introContent = [
+  const introLines = [
     `🐺 **Ecco le missioni di questa settimana!**`,
-    `Vota il numero della missione che vuoi fare. Puoi votare **una sola missione**.`,
-    dataFine ? `⏳ Sondaggio aperto fino al **${dataFine}**` : '',
-  ]
-    .filter(Boolean)
-    .join('\n');
+    `Usa il menu qui sotto per votare. Puoi votare **una sola missione** (o chiedere il rimescolo).`,
+    dataFine ? `⏳ Sondaggio aperto fino al **${dataFine}**` : "",
+  ].filter(Boolean);
 
-  const introMsg: Message = await pollChannel.send({ content: introContent, components: [row] });
-  const pollMessageIds: string[] = [];
+  const introMsg: Message = await pollChannel.send({
+    content: introLines.join("\n"),
+    components: [rimescoloRow],
+  });
 
-  for (let batchStart = 0; batchStart < sorted.length; batchStart += MISSIONS_PER_MESSAGE) {
-    const batch = sorted.slice(batchStart, batchStart + MISSIONS_PER_MESSAGE);
+  // ── Generate numbered badge images ──────────────────────
+  const badgeBuffers = await Promise.all(
+    sorted.map((quest, idx) => addNumberBadge(quest.promoImageUrl, idx + 1))
+  );
 
-    // Generate numbered badge images for each mission in this batch
-    const batchImages = await Promise.all(
-      batch.map((quest, idx) => addNumberBadge(quest.promoImageUrl, batchStart + idx + 1))
-    );
+  // Plain file attachments → Discord renders them as a photo grid
+  const imageFiles = badgeBuffers.map((buf, idx) =>
+    new AttachmentBuilder(buf, { name: `mission_${idx + 1}.png` })
+  );
 
-    const batchEmbeds = batch.map((quest, idx) => {
-      const globalIdx = batchStart + idx;
-      const emoji = VOTE_EMOJIS[globalIdx] ?? `${globalIdx + 1}`;
-      const isGems = quest.purchasableWithGems;
-      const color = quest.promoImagePrimaryColor
-        ? parseInt(quest.promoImagePrimaryColor.replace('#', ''), 16)
-        : 0x8b0000;
-      const imgName = `mission_${globalIdx + 1}.png`;
+  // Caption line: e.g. "💎 1️⃣ Gemme  |  🪙 2️⃣ Monete  |  ..."
+  const captionParts = sorted.map((q, i) => {
+    const icon = q.purchasableWithGems ? "💎" : "🪙";
+    const emoji = VOTE_EMOJIS[i] ?? `${i + 1}`;
+    return `${icon} ${emoji} ${q.purchasableWithGems ? "Gemme" : "Monete"}`;
+  });
+  const caption = captionParts.join("  ·  ");
 
-      return new EmbedBuilder()
-        .setTitle(`${emoji} — ${isGems ? 'Gemme' : 'Monete'}`)
-        .setImage(`attachment://${imgName}`)
-        .setThumbnail(isGems ? 'attachment://gemme.png' : 'attachment://moneta.png')
-        .setColor(isNaN(color) ? 0x8b0000 : color);
-    });
+  // ── Select menu for voting ("la lista") ──────────────────
+  const options = sorted.map((quest, idx) =>
+    new StringSelectMenuOptionBuilder()
+      .setLabel(`${quest.purchasableWithGems ? "Gemme" : "Monete"} — Missione ${idx + 1}`)
+      .setEmoji(VOTE_EMOJIS[idx] ?? `${idx + 1}`)
+      .setValue(String(idx))
+  );
 
-    const batchHasGems = batch.some((q) => q.purchasableWithGems);
-    const batchHasCoins = batch.some((q) => !q.purchasableWithGems);
+  const selectMenu = new StringSelectMenuBuilder()
+    .setCustomId("vote_mission")
+    .setPlaceholder("Seleziona la missione che vuoi fare...")
+    .addOptions(options);
 
-    // Create fresh attachment instances per batch to avoid stream-reuse issues
-    const files: AttachmentBuilder[] = [];
-    if (batchHasGems) files.push(new AttachmentBuilder(GEMME_PATH, { name: 'gemme.png' }));
-    if (batchHasCoins) files.push(new AttachmentBuilder(MONETA_PATH, { name: 'moneta.png' }));
-    batchImages.forEach((buf, idx) => {
-      const globalIdx = batchStart + idx;
-      files.push(new AttachmentBuilder(buf, { name: `mission_${globalIdx + 1}.png` }));
-    });
+  const selectRow = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(selectMenu);
 
-    const msg = await pollChannel.send({ embeds: batchEmbeds, files });
-    pollMessageIds.push(msg.id);
+  // ── Send single mission message ──────────────────────────
+  const missionMsg: Message = await pollChannel.send({
+    content: caption,
+    files: imageFiles,
+    components: [selectRow],
+  });
 
-    for (let idx = 0; idx < batch.length; idx++) {
-      const emoji = VOTE_EMOJIS[batchStart + idx];
-      if (emoji) await msg.react(emoji);
-    }
-  }
-
-  return { introMessageId: introMsg.id, messageIds: pollMessageIds, questLabels: labels };
+  return {
+    introMessageId: introMsg.id,
+    messageIds: [missionMsg.id],
+    questLabels: labels,
+  };
 }
 
 export async function execute(interaction: ChatInputCommandInteraction): Promise<void> {
@@ -121,20 +118,20 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 
   const guild = interaction.guild;
   if (!guild) {
-    await interaction.editReply({ content: '❌ Questo comando funziona solo in un server.' });
+    await interaction.editReply({ content: "❌ Questo comando funziona solo in un server." });
     return;
   }
 
   const config = loadConfig();
 
   if (!config.pollChannelName) {
-    await interaction.editReply({ content: '❌ Il canale sondaggi non è configurato. Usa `/impostazioni`.' });
+    await interaction.editReply({ content: "❌ Il canale sondaggi non è configurato. Usa `/impostazioni`." });
     return;
   }
 
-  const clanId = process.env['WOLVESVILLE_CLAN_ID'] ?? config.clanId ?? '';
+  const clanId = process.env["WOLVESVILLE_CLAN_ID"] ?? config.clanId ?? "";
   if (!clanId) {
-    await interaction.editReply({ content: '❌ ID clan Wolvesville non configurato.' });
+    await interaction.editReply({ content: "❌ ID clan Wolvesville non configurato." });
     return;
   }
 
@@ -143,11 +140,11 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     quests = await fetchAvailableQuests(clanId);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    if (msg.startsWith('401_UNAUTHORIZED')) {
+    if (msg.startsWith("401_UNAUTHORIZED")) {
       await interaction.editReply({
         content:
-          '❌ **Bot non autorizzato!**\n\n' +
-          'Il leader del clan deve aggiungere il bot in **Impostazioni clan → Bot**.',
+          "❌ **Bot non autorizzato!**\n\n" +
+          "Il leader del clan deve aggiungere il bot in **Impostazioni clan → Bot**.",
       });
     } else {
       await interaction.editReply({ content: `❌ Errore API Wolvesville: ${msg}` });
@@ -156,7 +153,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
   }
 
   if (quests.length === 0) {
-    await interaction.editReply({ content: 'ℹ️ Nessuna missione disponibile al momento.' });
+    await interaction.editReply({ content: "ℹ️ Nessuna missione disponibile al momento." });
     return;
   }
 
@@ -171,7 +168,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     return;
   }
 
-  const dataFine = interaction.options.getString('data_fine') ?? '';
+  const dataFine = interaction.options.getString("data_fine") ?? "";
   const { introMessageId, messageIds, questLabels } = await publishPoll(pollChannel, quests, dataFine);
 
   const durationHours = config.pollDurationHours ?? 0;
@@ -188,11 +185,12 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     questLabels,
     createdAt: new Date().toISOString(),
     closesAt,
+    votes: {},
   };
   saveConfig(config);
 
   if (closesAt) {
-    const { schedulePollClose } = await import('../poll-timer.js');
+    const { schedulePollClose } = await import("../poll-timer.js");
     schedulePollClose(interaction.client, closesAt);
   }
 
@@ -216,9 +214,9 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     `📊 Canale: **#${config.pollChannelName}**`,
     `🎯 Missioni: **${quests.length}**`,
     closesAt
-      ? `⏱️ Chiusura automatica: **${new Date(closesAt).toLocaleString('it-IT')}**`
+      ? `⏱️ Chiusura automatica: **${new Date(closesAt).toLocaleString("it-IT")}**`
       : `⏱️ Nessun timer impostato`,
   ];
-  if (notifyResults.length > 0) replyLines.push('', '**Notifiche:**', ...notifyResults);
-  await interaction.editReply({ content: replyLines.join('\n') });
+  if (notifyResults.length > 0) replyLines.push("", "**Notifiche:**", ...notifyResults);
+  await interaction.editReply({ content: replyLines.join("\n") });
 }
