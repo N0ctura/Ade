@@ -11,16 +11,18 @@ import { logger } from "../lib/logger.js";
 import * as sondaggioCommand from "./commands/sondaggio.js";
 import * as impostazioniCommand from "./commands/impostazioni.js";
 import * as debugTempliCommand from "./commands/debug-templi.js";
+import * as fineCommand from "./commands/fine.js";
 import { BOT_CONFIG } from "./config.js";
 import { loadConfig, saveConfig } from "./storage.js";
 import { schedulePollClose } from "./poll-timer.js";
 
-type BotCommand = typeof sondaggioCommand | typeof impostazioniCommand | typeof debugTempliCommand;
+type BotCommand = typeof sondaggioCommand | typeof impostazioniCommand | typeof debugTempliCommand | typeof fineCommand;
 
 const commands = new Collection<string, BotCommand>();
 commands.set(sondaggioCommand.data.name, sondaggioCommand);
 commands.set(impostazioniCommand.data.name, impostazioniCommand);
 commands.set(debugTempliCommand.data.name, debugTempliCommand);
+commands.set(fineCommand.data.name, fineCommand);
 
 export async function startBot(): Promise<void> {
   const token = BOT_CONFIG.token;
@@ -46,6 +48,7 @@ export async function startBot(): Promise<void> {
       sondaggioCommand.data.toJSON(),
       impostazioniCommand.data.toJSON(),
       debugTempliCommand.data.toJSON(),
+      fineCommand.data.toJSON(),
     ];
 
     try {
