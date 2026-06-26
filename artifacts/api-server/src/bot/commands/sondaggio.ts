@@ -3,8 +3,6 @@ import {
   SlashCommandBuilder,
   AttachmentBuilder,
   ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
   StringSelectMenuBuilder,
   StringSelectMenuOptionBuilder,
   PermissionFlagsBits,
@@ -27,8 +25,6 @@ export const data = new SlashCommandBuilder()
 export const VOTE_EMOJIS = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"];
 
 const ASSETS_DIR = join(__dirname, "assets");
-const GEMME_PATH = join(ASSETS_DIR, "gemme.png");
-const MONETA_PATH = join(ASSETS_DIR, "moneta.png");
 
 function questLabel(quest: WvQuest, globalIdx: number): string {
   const emoji = VOTE_EMOJIS[globalIdx] ?? `${globalIdx + 1}`;
@@ -48,67 +44,57 @@ export async function publishPoll(
 
   const labels = sorted.map((q, i) => questLabel(q, i));
 
-  // ── Intro message with Rimescolo button ──────────────────
-  const rimescoloBtn = new ButtonBuilder()
-    .setCustomId("rimescolo")
-    .setLabel("🔀 Rimescolo")
-    .setStyle(ButtonStyle.Secondary);
-  const rimescoloRow = new ActionRowBuilder<ButtonBuilder>().addComponents(rimescoloBtn);
-
-  const introLines = [
-    `🐺 **Ecco le missioni di questa settimana!**`,
-    `Usa il menu qui sotto per votare. Puoi votare **una sola missione** (o chiedere il rimescolo).`,
-    dataFine ? `⏳ Sondaggio aperto fino al **${dataFine}**` : "",
-  ].filter(Boolean);
-
-  const introMsg: Message = await pollChannel.send({
-    content: introLines.join("\n"),
-    components: [rimescoloRow],
-  });
-
-  // ── Generate numbered badge images ──────────────────────
+  // Generate numbered badge images (Discord renders plain attachments as a photo grid)
   const badgeBuffers = await Promise.all(
     sorted.map((quest, idx) => addNumberBadge(quest.promoImageUrl, idx + 1))
   );
 
-  // Plain file attachments → Discord renders them as a photo grid
   const imageFiles = badgeBuffers.map((buf, idx) =>
     new AttachmentBuilder(buf, { name: `mission_${idx + 1}.png` })
   );
 
-  // Caption line: e.g. "💎 1️⃣ Gemme  |  🪙 2️⃣ Monete  |  ..."
-  const captionParts = sorted.map((q, i) => {
-    const icon = q.purchasableWithGems ? "💎" : "🪙";
-    const emoji = VOTE_EMOJIS[i] ?? `${i + 1}`;
-    return `${icon} ${emoji} ${q.purchasableWithGems ? "Gemme" : "Monete"}`;
-  });
-  const caption = captionParts.join("  ·  ");
+  // Caption: one line summarising all missions
+  const caption = sorted
+    .map((q, i) => `${q.purchasableWithGems ? "💎" : "🪙"} ${VOTE_EMOJIS[i] ?? i + 1}`)
+    .join("  ·  ");
 
-  // ── Select menu for voting ("la lista") ──────────────────
-  const options = sorted.map((quest, idx) =>
+  // Select menu: mission options + Rimescolo as last choice
+  const missionOptions = sorted.map((quest, idx) =>
     new StringSelectMenuOptionBuilder()
       .setLabel(`${quest.purchasableWithGems ? "Gemme" : "Monete"} — Missione ${idx + 1}`)
       .setEmoji(VOTE_EMOJIS[idx] ?? `${idx + 1}`)
       .setValue(String(idx))
   );
+  const rimescoloOption = new StringSelectMenuOptionBuilder()
+    .setLabel("Rimescolo — voglio missioni diverse")
+    .setEmoji("🔀")
+    .setValue("rimescolo");
 
   const selectMenu = new StringSelectMenuBuilder()
     .setCustomId("vote_mission")
     .setPlaceholder("Seleziona la missione che vuoi fare...")
-    .addOptions(options);
+    .addOptions([...missionOptions, rimescoloOption]);
 
   const selectRow = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(selectMenu);
 
-  // ── Send single mission message ──────────────────────────
-  const missionMsg: Message = await pollChannel.send({
-    content: caption,
+  // Intro text
+  const introLines = [
+    `🐺 **Ecco le missioni di questa settimana!**`,
+    `Usa il menu qui sotto per votare. Puoi cambiare voto in qualsiasi momento.`,
+    dataFine ? `⏳ Sondaggio aperto fino al **${dataFine}**` : ``,
+    ``,
+    caption,
+  ].filter((l, i, arr) => l !== `` || arr[i - 1] !== ``);
+
+  const pollMsg: Message = await pollChannel.send({
+    content: introLines.filter(Boolean).join("\n"),
     files: imageFiles,
     components: [selectRow],
   });
 
   return {
-    introMessageId: introMsg.id,
-    messageIds: [missionMsg.id],
+    introMessageId: pollMsg.id,
+    messageIds: [pollMsg.id],
     questLabels: labels,
   };
 }
@@ -135,7 +121,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     return;
   }
 
-  let quests: WvQuest[];
+  let quests;
   try {
     quests = await fetchAvailableQuests(clanId);
   } catch (err) {
