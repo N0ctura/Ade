@@ -17,7 +17,7 @@ import { addNumberBadge } from "../image-badge.js";
 export const data = new SlashCommandBuilder()
   .setName("sondaggio")
   .setDescription("Crea un sondaggio con le missioni disponibili del clan da Wolvesville")
-  .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages)
+  .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
   .addStringOption((opt) =>
     opt.setName("data_fine").setDescription("Data fine sondaggio (es: 30 Giugno 2025) — ignorato se il timer automatico è attivo").setRequired(false)
   );
