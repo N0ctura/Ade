@@ -3,7 +3,10 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = join(__dirname, "../../data");
+
+// DATA_DIR can be overridden by env var — point it to a Railway Volume
+// (e.g. DATA_DIR=/data in Railway Variables)
+const DATA_DIR = process.env["DATA_DIR"] ?? join(__dirname, "../../data");
 const CONFIG_FILE = join(DATA_DIR, "bot-config.json");
 
 export interface ActivePoll {
@@ -14,7 +17,7 @@ export interface ActivePoll {
   questLabels: string[];
   createdAt: string;
   closesAt?: string;
-  /** userId → quest index (0-based) — populated by select-menu votes */
+  /** userId → quest index (0-based), or -1 for rimescolo vote */
   votes?: { [userId: string]: number };
 }
 
@@ -70,4 +73,8 @@ export function saveConfig(config: BotConfig): void {
 
 export function getMessages(config: BotConfig): BotMessages {
   return { ...DEFAULT_MESSAGES, ...config.messages };
+}
+
+export function getDataDir(): string {
+  return DATA_DIR;
 }
