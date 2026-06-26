@@ -17,6 +17,8 @@ export interface ActivePoll {
   messageIds: string[];
   questCount: number;
   questLabels: string[];
+  /** URL immagine promo per ogni missione (stesso ordine di questLabels) */
+  questImageUrls?: string[];
   createdAt: string;
   closesAt?: string;
   /** userId → quest index (0-based), o -1 per rimescolo */
