@@ -100,7 +100,8 @@ async function sendTempleSummaries(
   guild: Guild,
   voterMap: Map<string, string>,
   pollChannelId: string,
-  resultText: string
+  resultText: string,
+  winnerImageUrl?: string
 ): Promise<void> {
   logger.info("Avvio riepilogo templi...");
 
@@ -157,6 +158,8 @@ async function sendTempleSummaries(
       .setColor(EMBED_COLOR)
       .setTimestamp()
       .setFooter({ text: role.name });
+
+    if (winnerImageUrl) embed.setImage(winnerImageUrl);
 
     // Campo "Hanno votato"
     const votedChunks = splitFieldValue(voted.map((l) => `• ${l}`));
@@ -218,6 +221,8 @@ export async function closePoll(client: Client): Promise<void> {
   }
 
   let resultText: string;
+  let winnerImageUrl: string | undefined;
+
   if (winners.length === 0) {
     resultText = messages.nessunVoto;
   } else if (winners.length === 1 && winners[0] === RIMESCOLO_IDX) {
@@ -228,8 +233,10 @@ export async function closePoll(client: Client): Promise<void> {
       .join(", ");
     resultText = applyTemplate(messages.pareggio, { missioni: tiedLabels });
   } else {
-    const winnerLabel = poll.questLabels[winners[0]!] ?? `Missione ${(winners[0] ?? 0) + 1}`;
+    const winnerIdx = winners[0]!;
+    const winnerLabel = poll.questLabels[winnerIdx] ?? `Missione ${winnerIdx + 1}`;
     resultText = applyTemplate(messages.missioneVinta, { missione: winnerLabel });
+    winnerImageUrl = poll.questImageUrls?.[winnerIdx];
   }
 
   for (const [, guild] of client.guilds.cache) {
@@ -249,6 +256,8 @@ export async function closePoll(client: Client): Promise<void> {
       .setDescription(resultText)
       .setColor(EMBED_COLOR)
       .setTimestamp();
+
+    if (winnerImageUrl) closeEmbed.setThumbnail(winnerImageUrl);
 
     await pollChannel.send({
       content: roleMention || undefined,
@@ -272,7 +281,7 @@ export async function closePoll(client: Client): Promise<void> {
     }
 
     // Embed unificato (risultato + riepilogo voti) nei canali tempio
-    await sendTempleSummaries(guild, voterMap, poll.channelId, resultText);
+    await sendTempleSummaries(guild, voterMap, poll.channelId, resultText, winnerImageUrl);
   }
 
   config.activePoll = undefined;
