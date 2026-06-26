@@ -14,6 +14,8 @@ export interface ActivePoll {
   questLabels: string[];
   createdAt: string;
   closesAt?: string;
+  /** userId → quest index (0-based) — populated by select-menu votes */
+  votes?: { [userId: string]: number };
 }
 
 export interface BotMessages {
@@ -66,7 +68,6 @@ export function saveConfig(config: BotConfig): void {
   writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), "utf-8");
 }
 
-/** Merge persisted messages with defaults so missing keys always have a fallback. */
 export function getMessages(config: BotConfig): BotMessages {
   return { ...DEFAULT_MESSAGES, ...config.messages };
 }
