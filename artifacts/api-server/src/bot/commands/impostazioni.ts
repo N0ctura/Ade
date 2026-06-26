@@ -19,7 +19,7 @@ import { loadConfig, saveConfig, DEFAULT_MESSAGES, THRESHOLD_ROLE_ID_SET, type B
 export const data = new SlashCommandBuilder()
   .setName("impostazioni")
   .setDescription("Configura il bot: canale sondaggi, notifiche, durata, ruolo e messaggi")
-  .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild);
+  .setDefaultMemberPermissions(PermissionFlagsBits.Administrator);
 
 const DURATION_OPTIONS = [
   { label: "12 ore", value: "12" },
