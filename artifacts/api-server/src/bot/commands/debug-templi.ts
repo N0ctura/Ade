@@ -4,7 +4,7 @@ import {
   PermissionFlagsBits,
 } from "discord.js";
 import { normalize } from "../normalize.js";
-import { loadConfig, saveConfig } from "../storage.js";
+import { loadConfig, saveConfig, THRESHOLD_ROLE_ID_SET, DEFAULT_THRESHOLD_TIERS } from "../storage.js";
 
 export const data = new SlashCommandBuilder()
   .setName("debug-templi")
@@ -32,11 +32,8 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
   // Collect roles (excluding @everyone)
   const roles = guild.roles.cache.filter((r) => r.name !== "@everyone");
 
-  // ── Aggiorna archivio ruoli nella config ─────────────────────────────────
-  // Classifica ogni ruolo in base al match con un canale:
-  //   templeRoleNames    → ha un canale corrispondente (ruoli tempio)
-  //   thresholdRoleNames → nessun canale, 0 membri  (soglie XP, ecc.)
-  //   leaderRoleNames    → nessun canale, ha membri  (co-capi, admin, ecc.)
+  // ── Classifica ruoli ─────────────────────────────────────────────────────
+  // Priorità: 1) tempio (ha canale), 2) soglia (ID noto), 3) leader (tutto il resto)
   const templeRoleNames: string[] = [];
   const thresholdRoleNames: string[] = [];
   const leaderRoleNames: string[] = [];
@@ -45,7 +42,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     const normRole = normalize(role.name);
     if (channelByNorm.has(normRole)) {
       templeRoleNames.push(role.name);
-    } else if (role.members.size === 0) {
+    } else if (THRESHOLD_ROLE_ID_SET.has(role.id)) {
       thresholdRoleNames.push(role.name);
     } else {
       leaderRoleNames.push(role.name);
@@ -71,40 +68,41 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
   for (const [, role] of roles) {
     const normRole = normalize(role.name);
     const matchedChannel = channelByNorm.get(normRole);
-    const memberCount = role.members.size;
     if (matchedChannel) {
-      lines.push(`✅ \`${role.name}\`  →  #${matchedChannel}  (${memberCount} membri)`);
+      lines.push(`✅ \`${role.name}\`  →  #${matchedChannel}  (${role.members.size} membri)`);
       matchCount++;
     }
   }
   if (matchCount === 0) lines.push("❌ Nessun match trovato.");
 
-  lines.push(``, `**📊 Ruoli senza canale (co-capi / admin):**`);
+  lines.push(``, `**👑 Ruoli co-capi / admin (non sono soglie note):**`);
   if (leaderRoleNames.length > 0) {
     for (const n of leaderRoleNames) lines.push(`• \`${n}\``);
   } else {
     lines.push("Nessuno.");
   }
 
-  lines.push(``, `**⭐ Ruoli soglia XP (nessun membro attivo):**`);
-  if (thresholdRoleNames.length > 0) {
-    for (const n of thresholdRoleNames) lines.push(`• \`${n}\``);
-  } else {
-    lines.push("Nessuno.");
+  lines.push(``, `**⭐ Ruoli soglia XP (identificati tramite ID):**`);
+  for (const tier of DEFAULT_THRESHOLD_TIERS) {
+    const found = tier.roleIds.filter((id) => guild.roles.cache.has(id));
+    if (found.length > 0) {
+      const names = found.map((id) => guild.roles.cache.get(id)?.name ?? id).join(", ");
+      lines.push(`• **${tier.name}** (${tier.xpRequired.toLocaleString("it-IT")} XP): ${names}`);
+    }
   }
+  if (thresholdRoleNames.length === 0) lines.push("Nessun ruolo soglia trovato nel server.");
 
   lines.push(
     ``,
     `**Totale match ruolo↔canale: ${matchCount}**`,
-    ``,
     `✅ Archivio ruoli aggiornato nella config.`
   );
 
   if (matchCount === 0) {
     lines.push(
       ``,
-      `⚠️ **Nessun match trovato.** Assicurati che il nome del ruolo (dopo normalizzazione) corrisponda al nome del canale.`,
-      `Esempio: ruolo \`♢🔱𝐓𝐞𝐦𝐩𝐢𝐨-𝐝𝐞𝐠𝐥𝐢-𝐀𝐛𝐢𝐬𝐬𝐢\` → canale \`#tempio-degli-abissi\` (entrambi diventano \`tempioabissi\` dopo normalizzazione)`
+      `⚠️ **Nessun match trovato.** Entrambi i nomi (ruolo e canale) vengono normalizzati prima del confronto: minuscolo, no accenti, no emoji, caratteri bold Unicode → ASCII.`,
+      `Esempio atteso: ruolo \`♢🔱𝐓𝐞𝐦𝐩𝐢𝐨-𝐝𝐞𝐠𝐥𝐢-𝐀𝐛𝐢𝐬𝐬𝐢\` → canale \`#tempio-degli-abissi\` (entrambi → \`tempioabissi\`)`
     );
   }
 
