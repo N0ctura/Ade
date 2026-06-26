@@ -10,15 +10,17 @@ import {
 import { logger } from "../lib/logger.js";
 import * as sondaggioCommand from "./commands/sondaggio.js";
 import * as impostazioniCommand from "./commands/impostazioni.js";
+import * as debugTempliCommand from "./commands/debug-templi.js";
 import { BOT_CONFIG } from "./config.js";
 import { loadConfig, saveConfig } from "./storage.js";
 import { schedulePollClose } from "./poll-timer.js";
 
-type BotCommand = typeof sondaggioCommand | typeof impostazioniCommand;
+type BotCommand = typeof sondaggioCommand | typeof impostazioniCommand | typeof debugTempliCommand;
 
 const commands = new Collection<string, BotCommand>();
 commands.set(sondaggioCommand.data.name, sondaggioCommand);
 commands.set(impostazioniCommand.data.name, impostazioniCommand);
+commands.set(debugTempliCommand.data.name, debugTempliCommand);
 
 export async function startBot(): Promise<void> {
   const token = BOT_CONFIG.token;
@@ -43,6 +45,7 @@ export async function startBot(): Promise<void> {
     const commandsData = [
       sondaggioCommand.data.toJSON(),
       impostazioniCommand.data.toJSON(),
+      debugTempliCommand.data.toJSON(),
     ];
 
     try {
@@ -51,13 +54,12 @@ export async function startBot(): Promise<void> {
       logger.warn({ err }, "Impossibile rimuovere comandi globali");
     }
 
-    const guilds = c.guilds.cache;
-    for (const [guildId] of guilds) {
+    for (const [guildId] of c.guilds.cache) {
       try {
         await rest.put(Routes.applicationGuildCommands(c.application.id, guildId), { body: commandsData });
-        logger.info({ guildId }, "Comandi slash registrati nel server");
+        logger.info({ guildId }, "Comandi slash registrati");
       } catch (err) {
-        logger.error({ err, guildId }, "Errore registrazione comandi nel server");
+        logger.error({ err, guildId }, "Errore registrazione comandi");
       }
     }
 
@@ -70,7 +72,7 @@ export async function startBot(): Promise<void> {
 
   client.on("interactionCreate", async (interaction: Interaction) => {
 
-    // ── Select menu: voto missione o rimescolo ─────────────
+    // ── Select menu: voto missione o rimescolo ──────────────
     if (interaction.isStringSelectMenu() && interaction.customId === "vote_mission") {
       const value = interaction.values[0] ?? "";
       const config = loadConfig();
@@ -85,12 +87,11 @@ export async function startBot(): Promise<void> {
       const isChange = interaction.user.id in poll.votes;
 
       if (value === "rimescolo") {
-        // -1 signals rimescolo vote in storage
         poll.votes[interaction.user.id] = -1;
         saveConfig(config);
         const verb = isChange ? "🔄 **Voto aggiornato!** Hai votato per il" : "🔀 **Voto registrato!** Hai votato per il";
         await interaction.reply({ content: `${verb} **Rimescolo**.`, ephemeral: true });
-        logger.info({ userId: interaction.user.id, vote: "rimescolo", isChange }, "Voto rimescolo registrato");
+        logger.info({ userId: interaction.user.id, vote: "rimescolo", isChange }, "Voto rimescolo");
         return;
       }
 
@@ -108,7 +109,7 @@ export async function startBot(): Promise<void> {
         ? `🔄 **Voto aggiornato!** Hai cambiato voto: **${label}**`
         : `✅ **Voto registrato!** Hai votato: **${label}**`;
       await interaction.reply({ content: msg, ephemeral: true });
-      logger.info({ userId: interaction.user.id, selectedIdx, label, isChange }, "Voto missione registrato");
+      logger.info({ userId: interaction.user.id, selectedIdx, label, isChange }, "Voto missione");
       return;
     }
 
@@ -120,7 +121,7 @@ export async function startBot(): Promise<void> {
     try {
       await command.execute(interaction);
     } catch (err) {
-      logger.error({ err, command: interaction.commandName }, "Errore nell'esecuzione del comando");
+      logger.error({ err, command: interaction.commandName }, "Errore comando");
       const errorMsg = { content: "❌ Si è verificato un errore. Riprova più tardi.", ephemeral: true };
       if (interaction.replied || interaction.deferred) await interaction.followUp(errorMsg);
       else await interaction.reply(errorMsg);
@@ -128,6 +129,5 @@ export async function startBot(): Promise<void> {
   });
 
   client.on("error", (err) => { logger.error({ err }, "Errore client Discord"); });
-
   await client.login(token);
 }
