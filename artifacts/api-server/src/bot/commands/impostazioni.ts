@@ -38,25 +38,25 @@ const MESSAGE_KEYS: Array<{ key: keyof BotMessages; label: string; emoji: string
     key: "missioneVinta",
     label: "Missione vinta",
     emoji: "🏆",
-    hint: "Usa {missione} per inserire il nome della missione vincitrice.",
+    hint: "Variabile: {missione}",
   },
   {
     key: "pareggio",
     label: "Pareggio",
     emoji: "⚖️",
-    hint: "Usa {missioni} per elencare le missioni pareggiate.",
+    hint: "Variabile: {missioni}",
   },
   {
     key: "nessunVoto",
     label: "Nessun voto",
     emoji: "🗳️",
-    hint: "Messaggio quando il sondaggio finisce senza voti.",
+    hint: "Nessuna variabile disponibile",
   },
   {
     key: "rimescolo",
     label: "Rimescolo",
     emoji: "🔀",
-    hint: "Messaggio inviato nei canali di notifica quando viene usato il rimescolo.",
+    hint: "Nessuna variabile disponibile",
   },
 ];
 
@@ -335,12 +335,11 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
         config.messages[msgKey] = newText;
         saveConfig(config);
 
-        // Acknowledge the modal without a visible reply, then update the original message
-        await submitted.deferUpdate();
-        await interaction.editReply({ embeds: [buildStep5Embed()], components: [buildMessageButtons()] });
+        // update() risponde al modal E aggiorna il messaggio originale in un solo passo
+        await submitted.update({ embeds: [buildStep5Embed()], components: [buildMessageButtons()] });
       } catch {
-        // Modal timed out — just restore the step 5 view
-        await interaction.editReply({ embeds: [buildStep5Embed()], components: [buildMessageButtons()] });
+        // Modal scaduto — ripristina il passo 5 senza toccare il modal
+        try { await interaction.editReply({ embeds: [buildStep5Embed()], components: [buildMessageButtons()] }); } catch { /* ignorato */ }
       }
     }
   });
