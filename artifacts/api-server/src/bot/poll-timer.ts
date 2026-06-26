@@ -26,7 +26,7 @@ export function cancelPollTimer(): void {
 
 const RIMESCOLO_IDX = -1;
 const EMBED_COLOR = 0x8b0000;
-const EMBED_FIELD_MAX = 1000; // embed field value Discord limit is 1024, stay safe
+const EMBED_FIELD_MAX = 1000;
 
 interface VoteResult {
   winners: number[];
@@ -81,7 +81,6 @@ function applyTemplate(template: string, vars: Record<string, string>): string {
   return Object.entries(vars).reduce((str, [k, v]) => str.replaceAll(`{${k}}`, v), template);
 }
 
-/** Spezza una lista di righe in chunks che rispettano il limite di caratteri del field embed. */
 function splitFieldValue(lines: string[], maxLen = EMBED_FIELD_MAX): string[] {
   const chunks: string[] = [];
   let current = "";
@@ -100,7 +99,8 @@ function splitFieldValue(lines: string[], maxLen = EMBED_FIELD_MAX): string[] {
 async function sendTempleSummaries(
   guild: Guild,
   voterMap: Map<string, string>,
-  pollChannelId: string
+  pollChannelId: string,
+  resultText: string
 ): Promise<void> {
   logger.info("Avvio riepilogo templi...");
 
@@ -124,29 +124,17 @@ async function sendTempleSummaries(
       channelByNorm.set(normalize(ch.name), ch as TextChannel);
     }
   }
-  logger.info({ channelCount: channelByNorm.size }, "Canali testo indicizzati");
 
   const roles = guild.roles.cache.filter((r) => r.name !== "@everyone");
-  logger.info({ roleCount: roles.size }, "Ruoli trovati");
 
   let matchCount = 0;
   for (const [, role] of roles) {
     const normRole = normalize(role.name);
 
-    if (hasTempleFilter && !templeRoleNorms.has(normRole)) {
-      logger.debug({ role: role.name }, "Ruolo non-tempio, saltato per riepilogo");
-      continue;
-    }
+    if (hasTempleFilter && !templeRoleNorms.has(normRole)) continue;
 
     const templeChannel = channelByNorm.get(normRole);
-    if (!templeChannel) {
-      logger.debug({ role: role.name, normalized: normRole }, "Nessun canale corrispondente per questo ruolo");
-      continue;
-    }
-    if (role.members.size === 0) {
-      logger.debug({ role: role.name }, "Ruolo senza membri, saltato");
-      continue;
-    }
+    if (!templeChannel || role.members.size === 0) continue;
 
     matchCount++;
     logger.info({ role: role.name, channel: templeChannel.name, members: role.members.size }, "Match trovato, invio riepilogo");
@@ -159,11 +147,16 @@ async function sendTempleSummaries(
       else notVoted.push(member.displayName);
     }
 
-    // Costruisce l'embed riepilogo
+    // Embed unico: risultato missione + riepilogo voti tempio
     const embed = new EmbedBuilder()
-      .setTitle(`📊 Riepilogo voti — ${role.name}`)
+      .setTitle("🏁 I sondaggi sono chiusi!")
+      .setDescription(
+        `${resultText}\n\n` +
+        `💬 **Questa è la missione che ha vinto il sondaggio — chi partecipa?**`
+      )
       .setColor(EMBED_COLOR)
-      .setTimestamp();
+      .setTimestamp()
+      .setFooter({ text: role.name });
 
     // Campo "Hanno votato"
     const votedChunks = splitFieldValue(voted.map((l) => `• ${l}`));
@@ -176,7 +169,7 @@ async function sendTempleSummaries(
       embed.addFields({ name: "\u200b", value: extra, inline: false });
     }
 
-    // Campo "Non hanno votato"
+    // Campo "Non hanno votato" / "Tutti hanno votato"
     if (notVoted.length > 0) {
       const notVotedChunks = splitFieldValue(notVoted.map((l) => `• ${l}`));
       embed.addFields({
@@ -197,7 +190,7 @@ async function sendTempleSummaries(
 
     try {
       await templeChannel.send({ embeds: [embed] });
-      logger.info({ role: role.name, channel: templeChannel.name, voted: voted.length, notVoted: notVoted.length }, "Riepilogo inviato con successo");
+      logger.info({ role: role.name, channel: templeChannel.name, voted: voted.length, notVoted: notVoted.length }, "Riepilogo inviato");
     } catch (err) {
       logger.warn({ err, role: role.name, channel: templeChannel.name }, "Impossibile inviare riepilogo nel canale tempio — controlla i permessi del bot");
     }
@@ -243,6 +236,7 @@ export async function closePoll(client: Client): Promise<void> {
     const pollChannel = guild.channels.cache.get(poll.channelId) as TextChannel | undefined;
     if (!pollChannel) continue;
 
+    // Embed di chiusura nel canale sondaggi (con eventuale ping ruolo)
     let roleMention = "";
     let roleId = "";
     if (config.pingRoleName) {
@@ -250,7 +244,6 @@ export async function closePoll(client: Client): Promise<void> {
       if (role) { roleId = role.id; roleMention = `<@&${role.id}>`; }
     }
 
-    // Embed di chiusura nel canale sondaggi
     const closeEmbed = new EmbedBuilder()
       .setTitle("🏁 I sondaggi sono chiusi!")
       .setDescription(resultText)
@@ -263,7 +256,7 @@ export async function closePoll(client: Client): Promise<void> {
       allowedMentions: { roles: roleId ? [roleId] : [] },
     });
 
-    // Notifica negli altri canali
+    // Notifica negli altri canali di notifica (esclusi templi — quelli ricevono l'embed unificato)
     for (const channelName of config.notifyChannelNames) {
       if (channelName === config.pollChannelName) continue;
       const notifyChannel = guild.channels.cache.find(
@@ -278,7 +271,8 @@ export async function closePoll(client: Client): Promise<void> {
       await notifyChannel.send({ embeds: [notifyEmbed] }).catch(() => null);
     }
 
-    await sendTempleSummaries(guild, voterMap, poll.channelId);
+    // Embed unificato (risultato + riepilogo voti) nei canali tempio
+    await sendTempleSummaries(guild, voterMap, poll.channelId, resultText);
   }
 
   config.activePoll = undefined;
