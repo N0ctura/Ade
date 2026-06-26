@@ -34,7 +34,6 @@ function normalize(str: string): string {
 const RIMESCOLO_IDX = -1;
 
 interface VoteResult {
-  /** Winning quest index, or RIMESCOLO_IDX if rimescolo won */
   winners: number[];
   maxVotes: number;
   voterMap: Map<string, string>;
@@ -42,7 +41,6 @@ interface VoteResult {
 
 function countVotes(poll: ActivePoll): VoteResult {
   const votes = poll.votes ?? {};
-  // voteCounts[0..questCount-1] = missions, voteCounts[questCount] = rimescolo
   const voteCounts = new Array<number>(poll.questCount + 1).fill(0);
   const voterMap = new Map<string, string>();
 
@@ -63,7 +61,6 @@ function countVotes(poll: ActivePoll): VoteResult {
   const winners: number[] = [];
   for (let i = 0; i <= poll.questCount; i++) {
     if ((voteCounts[i] ?? 0) === maxVotes) {
-      // map rimescolo bucket back to RIMESCOLO_IDX
       winners.push(i === poll.questCount ? RIMESCOLO_IDX : i);
     }
   }
@@ -80,7 +77,9 @@ async function disableSelectMenu(client: Client, channelId: string, messageId: s
       .setDisabled(true)
       .addOptions([{ label: "Sondaggio chiuso", value: "closed" }]);
     await msg.edit({ components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(disabledMenu)] });
-  } catch { /* non-fatal */ }
+  } catch (err) {
+    logger.warn({ err }, "Impossibile disabilitare il select menu");
+  }
 }
 
 function applyTemplate(template: string, vars: Record<string, string>): string {
@@ -92,22 +91,45 @@ async function sendTempleSummaries(
   voterMap: Map<string, string>,
   pollChannelId: string
 ): Promise<void> {
-  try { await guild.members.fetch(); } catch (err) {
-    logger.warn({ err }, "Impossibile fetchare i membri — riepilogo templi saltato");
+  logger.info("Avvio riepilogo templi...");
+
+  try {
+    await guild.members.fetch();
+    logger.info({ memberCount: guild.members.cache.size }, "Membri fetchati");
+  } catch (err) {
+    logger.warn({ err }, "Impossibile fetchare i membri — riepilogo templi saltato. Verifica che l'intent GuildMembers sia abilitato nel Developer Portal.");
     return;
   }
 
+  // Build map: normalizedChannelName → TextChannel
   const channelByNorm = new Map<string, TextChannel>();
   for (const [, ch] of guild.channels.cache) {
     if (ch.isTextBased() && !ch.isThread() && ch.id !== pollChannelId) {
       channelByNorm.set(normalize(ch.name), ch as TextChannel);
     }
   }
+  logger.info({ channelCount: channelByNorm.size }, "Canali testo indicizzati");
 
-  for (const [, role] of guild.roles.cache) {
-    if (role.name === "@everyone") continue;
-    const templeChannel = channelByNorm.get(normalize(role.name));
-    if (!templeChannel || role.members.size === 0) continue;
+  const roles = guild.roles.cache.filter((r) => r.name !== "@everyone");
+  logger.info({ roleCount: roles.size }, "Ruoli trovati");
+
+  let matchCount = 0;
+  for (const [, role] of roles) {
+    const normRole = normalize(role.name);
+    const templeChannel = channelByNorm.get(normRole);
+
+    if (!templeChannel) {
+      logger.debug({ role: role.name, normalized: normRole }, "Nessun canale corrispondente per questo ruolo");
+      continue;
+    }
+
+    if (role.members.size === 0) {
+      logger.debug({ role: role.name }, "Ruolo senza membri, saltato");
+      continue;
+    }
+
+    matchCount++;
+    logger.info({ role: role.name, channel: templeChannel.name, members: role.members.size }, "Match trovato, invio riepilogo");
 
     const voted: string[] = [];
     const notVoted: string[] = [];
@@ -118,16 +140,32 @@ async function sendTempleSummaries(
     }
 
     const lines: string[] = [`📊 **Riepilogo voti — ${role.name}**\n`];
-    if (voted.length > 0) { lines.push(`✅ **Hanno votato (${voted.length}):**`); lines.push(...voted); }
-    else lines.push("✅ **Nessuno ha votato.**");
+    if (voted.length > 0) {
+      lines.push(`✅ **Hanno votato (${voted.length}):**`);
+      lines.push(...voted);
+    } else {
+      lines.push("✅ **Nessuno ha votato.**");
+    }
     lines.push("");
-    if (notVoted.length > 0) { lines.push(`❌ **Non hanno votato (${notVoted.length}):**`); lines.push(...notVoted); }
-    else lines.push("🎉 **Tutti hanno votato!**");
+    if (notVoted.length > 0) {
+      lines.push(`❌ **Non hanno votato (${notVoted.length}):**`);
+      lines.push(...notVoted);
+    } else {
+      lines.push("🎉 **Tutti hanno votato!**");
+    }
 
-    await templeChannel.send({ content: lines.join("\n") }).catch((err) => {
-      logger.warn({ err, channel: templeChannel.name }, "Impossibile inviare riepilogo nel canale tempio");
-    });
-    logger.info({ role: role.name, channel: templeChannel.name }, "Riepilogo voti inviato");
+    try {
+      await templeChannel.send({ content: lines.join("\n") });
+      logger.info({ role: role.name, channel: templeChannel.name, voted: voted.length, notVoted: notVoted.length }, "Riepilogo inviato con successo");
+    } catch (err) {
+      logger.warn({ err, role: role.name, channel: templeChannel.name }, "Impossibile inviare riepilogo nel canale tempio — controlla i permessi del bot");
+    }
+  }
+
+  if (matchCount === 0) {
+    logger.warn("Nessun match ruolo↔canale trovato. Usa /debug-templi per diagnosticare.");
+  } else {
+    logger.info({ matchCount }, "Riepilogo templi completato");
   }
 }
 
@@ -141,29 +179,20 @@ export async function closePoll(client: Client): Promise<void> {
   const { winners, maxVotes, voterMap } = countVotes(poll);
   const messages = getMessages(config);
 
-  // Disable the select menu on the poll message
   if (poll.messageIds[0]) {
     await disableSelectMenu(client, poll.channelId, poll.messageIds[0]);
   }
 
-  // Build result text
   let resultText: string;
   if (winners.length === 0) {
     resultText = messages.nessunVoto;
-  } else if (winners.length > 1) {
-    // Check if rimescolo is among winners
-    const rimescoloWon = winners.includes(RIMESCOLO_IDX);
-    const missionWinners = winners.filter((i) => i !== RIMESCOLO_IDX);
-    if (rimescoloWon && missionWinners.length === 0) {
-      resultText = `🔀 **Il clan ha votato per il Rimescolo!** Ricordati di rimescolare le missioni manualmente nel gioco, poi pubblica un nuovo sondaggio.`;
-    } else {
-      const tiedLabels = winners.map((i) =>
-        i === RIMESCOLO_IDX ? "🔀 Rimescolo" : (poll.questLabels[i] ?? `Missione ${i + 1}`)
-      ).join(", ");
-      resultText = applyTemplate(messages.pareggio, { missioni: tiedLabels });
-    }
-  } else if (winners[0] === RIMESCOLO_IDX) {
+  } else if (winners.length === 1 && winners[0] === RIMESCOLO_IDX) {
     resultText = `🔀 **Il clan ha votato per il Rimescolo!** Ricordati di rimescolare le missioni manualmente nel gioco, poi pubblica un nuovo sondaggio.`;
+  } else if (winners.length > 1) {
+    const tiedLabels = winners
+      .map((i) => (i === RIMESCOLO_IDX ? "🔀 Rimescolo" : (poll.questLabels[i] ?? `Missione ${i + 1}`)))
+      .join(", ");
+    resultText = applyTemplate(messages.pareggio, { missioni: tiedLabels });
   } else {
     const winnerLabel = poll.questLabels[winners[0]!] ?? `Missione ${(winners[0] ?? 0) + 1}`;
     resultText = applyTemplate(messages.missioneVinta, { missione: winnerLabel });
