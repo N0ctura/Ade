@@ -47,6 +47,24 @@ export interface BotConfig {
   clanId?: string;
   activePoll?: ActivePoll;
   messages?: Partial<BotMessages>;
+  /**
+   * Ruoli tempio: hanno un canale Discord corrispondente.
+   * Usati per i riepiloghi voti alla chiusura del sondaggio.
+   * Popolati automaticamente da /debug-templi.
+   */
+  templeRoleNames?: string[];
+  /**
+   * Ruoli co-capi / admin: non hanno canale corrispondente ma hanno membri.
+   * Archiviati per uso futuro — NON usati nei sondaggi.
+   * Popolati automaticamente da /debug-templi.
+   */
+  leaderRoleNames?: string[];
+  /**
+   * Ruoli soglia XP: non hanno canale e non hanno membri attivi.
+   * Archiviati per uso futuro — NON usati nei sondaggi.
+   * Popolati automaticamente da /debug-templi.
+   */
+  thresholdRoleNames?: string[];
 }
 
 const DEFAULT_CONFIG: BotConfig = {
