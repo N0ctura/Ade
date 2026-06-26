@@ -5,9 +5,12 @@ import {
   REST,
   Routes,
   Collection,
+  ActionRowBuilder,
+  StringSelectMenuBuilder,
+  StringSelectMenuOptionBuilder,
+  ButtonBuilder,
+  ButtonStyle,
   type Interaction,
-  type MessageReaction,
-  type User,
   type TextChannel,
 } from "discord.js";
 import { logger } from "../lib/logger.js";
@@ -15,7 +18,7 @@ import * as sondaggioCommand from "./commands/sondaggio.js";
 import * as impostazioniCommand from "./commands/impostazioni.js";
 import { BOT_CONFIG } from "./config.js";
 import { loadConfig, saveConfig, getMessages } from "./storage.js";
-import { VOTE_EMOJIS, publishPoll } from "./commands/sondaggio.js";
+import { publishPoll } from "./commands/sondaggio.js";
 import { shuffleQuests, fetchAvailableQuests } from "./wolvesville.js";
 import { schedulePollClose, cancelPollTimer } from "./poll-timer.js";
 
@@ -36,10 +39,9 @@ export async function startBot(): Promise<void> {
     intents: [
       GatewayIntentBits.Guilds,
       GatewayIntentBits.GuildMessages,
-      GatewayIntentBits.GuildMessageReactions,
-      GatewayIntentBits.GuildMembers,   // needed to fetch all role members for temple summaries
+      GatewayIntentBits.GuildMembers,
     ],
-    partials: [Partials.Message, Partials.Channel, Partials.Reaction, Partials.GuildMember],
+    partials: [Partials.Message, Partials.Channel, Partials.GuildMember],
   });
 
   client.once("ready", async (c) => {
@@ -76,40 +78,39 @@ export async function startBot(): Promise<void> {
     }
   });
 
-  // ── Voto esclusivo ───────────────────────────────────────
-  client.on("messageReactionAdd", async (reaction: MessageReaction, user: User) => {
-    if (user.bot) return;
-    if (reaction.partial) { try { await reaction.fetch(); } catch { return; } }
-    if (reaction.message.partial) { try { await reaction.message.fetch(); } catch { return; } }
-
-    const emoji = reaction.emoji.name;
-    if (!emoji || !VOTE_EMOJIS.includes(emoji)) return;
-
-    const config = loadConfig();
-    const poll = config.activePoll;
-    if (!poll || !poll.messageIds.includes(reaction.message.id)) return;
-
-    for (const pollMsgId of poll.messageIds) {
-      const targetMsg = pollMsgId === reaction.message.id
-        ? reaction.message
-        : await reaction.message.channel.messages.fetch(pollMsgId).catch(() => null);
-      if (!targetMsg) continue;
-
-      for (const [, msgReaction] of targetMsg.reactions.cache) {
-        const rEmoji = msgReaction.emoji.name;
-        if (!rEmoji || !VOTE_EMOJIS.includes(rEmoji)) continue;
-        if (pollMsgId === reaction.message.id && rEmoji === emoji) continue;
-        const users = await msgReaction.users.fetch();
-        if (users.has(user.id)) {
-          await msgReaction.users.remove(user.id).catch(() => null);
-          logger.info({ userId: user.id, removed: rEmoji }, "Voto precedente rimosso");
-        }
-      }
-    }
-  });
-
   // ── Interazioni ──────────────────────────────────────────
   client.on("interactionCreate", async (interaction: Interaction) => {
+
+    // ── Select menu: voto missione ─────────────────────────
+    if (interaction.isStringSelectMenu() && interaction.customId === "vote_mission") {
+      const selectedIdx = parseInt(interaction.values[0] ?? "0", 10);
+      const config = loadConfig();
+      const poll = config.activePoll;
+
+      if (!poll || !poll.messageIds.includes(interaction.message.id)) {
+        await interaction.reply({ content: "❌ Questo sondaggio non è più attivo.", ephemeral: true });
+        return;
+      }
+
+      if (isNaN(selectedIdx) || selectedIdx < 0 || selectedIdx >= poll.questCount) {
+        await interaction.reply({ content: "❌ Scelta non valida.", ephemeral: true });
+        return;
+      }
+
+      poll.votes = poll.votes ?? {};
+      const isChange = interaction.user.id in poll.votes;
+      poll.votes[interaction.user.id] = selectedIdx;
+      saveConfig(config);
+
+      const label = poll.questLabels[selectedIdx] ?? `Missione ${selectedIdx + 1}`;
+      const msg = isChange
+        ? `🔄 **Voto aggiornato!** Hai cambiato voto: **${label}**`
+        : `✅ **Voto registrato!** Hai votato: **${label}**`;
+      await interaction.reply({ content: msg, ephemeral: true });
+      logger.info({ userId: interaction.user.id, selectedIdx, label, isChange }, "Voto registrato");
+      return;
+    }
+
     // ── Button: Rimescolo ──────────────────────────────────
     if (interaction.isButton() && interaction.customId === "rimescolo") {
       await interaction.deferReply({ ephemeral: true });
@@ -165,12 +166,12 @@ export async function startBot(): Promise<void> {
         questLabels,
         createdAt: new Date().toISOString(),
         closesAt,
+        votes: {},
       };
       saveConfig(config);
 
       if (closesAt) { cancelPollTimer(); schedulePollClose(interaction.client, closesAt); }
 
-      // Rimescolo notification in notify channels
       const messages = getMessages(config);
       for (const channelName of config.notifyChannelNames) {
         if (channelName === config.pollChannelName) continue;
