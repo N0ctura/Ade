@@ -42,7 +42,7 @@ import {
   FaDoorOpen,
 } from "react-icons/fa";
 
-const BOT_API_URL = process.env.REACT_APP_BOT_API_URL || "http://localhost:3000";
+const BOT_API_URL = process.env.REACT_APP_BOT_API_URL || "https://ade-production-d78d.up.railway.app";
 
 const MotionBox = motion(Box);
 const MotionFlex = motion(Flex);
