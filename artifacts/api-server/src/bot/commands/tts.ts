@@ -23,14 +23,25 @@ export const ttsCommands = [
     .setName("stop-tts")
     .setDescription("Ferma il TTS e disconnette dal canale vocale"),
 
-  // /canale-tts [canale]
+  // /setttstext [canale]
   new SlashCommandBuilder()
-    .setName("canale-tts")
-    .setDescription("Imposta un canale dove il bot legge automaticamente tutti i messaggi")
+    .setName("setttstext")
+    .setDescription("Imposta il canale testuale per il TTS (usa questo canale se non specifichi)")
     .addChannelOption((option) =>
       option
         .setName("canale")
-        .setDescription("Il canale testuale da monitorare")
+        .setDescription("Il canale testuale da monitorare (opzionale)")
+        .setRequired(false)
+    ),
+
+  // /setttsvoice [canale]
+  new SlashCommandBuilder()
+    .setName("setttsvoice")
+    .setDescription("Imposta il canale vocale per il TTS (usa il tuo canale se non specifichi)")
+    .addChannelOption((option) =>
+      option
+        .setName("canale")
+        .setDescription("Il canale vocale dove il bot entra (opzionale)")
         .setRequired(false)
     ),
 
@@ -71,14 +82,10 @@ export async function handleTTSCommand(
         break;
       }
 
-      case "canale-tts": {
-        const channel = interaction.options.getChannel("canale");
-        const currentConfig = getTTSConfig(guildId) || {
-          guildId,
-          guildName: interaction.guild?.name || "Unknown",
-          ttsEnabled: false,
-          ttsLanguage: "it",
-        };
+      case "setttstext": {
+        // Se non si specifica un canale, usa il canale corrente
+        const channel = interaction.options.getChannel("canale") || interaction.channel;
+        const currentConfig = getTTSConfig(guildId);
 
         setTTSConfig({
           ...currentConfig,
@@ -87,29 +94,44 @@ export async function handleTTSCommand(
 
         if (channel) {
           await interaction.reply({
-            content: `✅ Canale TTS impostato su <#${channel.id}>!`,
-            ephemeral: true,
-          });
-        } else {
-          await interaction.reply({
-            content: "✅ Canale TTS rimosso.",
+            content: `✅ Canale testuale TTS impostato su <#${channel.id}>!`,
             ephemeral: true,
           });
         }
         break;
       }
 
+      case "setttsvoice": {
+        // Se non si specifica un canale, usa il canale vocale dell'utente
+        const channel = interaction.options.getChannel("canale") || member.voice.channel;
+        const currentConfig = getTTSConfig(guildId);
+
+        if (!channel) {
+          await interaction.reply({
+            content: "❌ Devi essere in un canale vocale o specificarne uno!",
+            ephemeral: true,
+          });
+          return;
+        }
+
+        setTTSConfig({
+          ...currentConfig,
+          ttsVoiceChannelId: channel.id,
+        });
+
+        await interaction.reply({
+          content: `✅ Canale vocale TTS impostato su <#${channel.id}>!`,
+          ephemeral: true,
+        });
+        break;
+      }
+
       case "abilita-tts": {
-        const currentConfig = getTTSConfig(guildId) || {
-          guildId,
-          guildName: interaction.guild?.name || "Unknown",
-          ttsSourceChannelId: undefined,
-          ttsLanguage: "it",
-        };
+        const currentConfig = getTTSConfig(guildId);
 
         if (!currentConfig.ttsSourceChannelId) {
           await interaction.reply({
-            content: "❌ Devi prima impostare un canale con `/canale-tts`!",
+            content: "❌ Devi prima impostare un canale con `/setttstext`!",
             ephemeral: true,
           });
           return;
@@ -128,12 +150,7 @@ export async function handleTTSCommand(
       }
 
       case "disabilita-tts": {
-        const currentConfig = getTTSConfig(guildId) || {
-          guildId,
-          guildName: interaction.guild?.name || "Unknown",
-          ttsSourceChannelId: undefined,
-          ttsLanguage: "it",
-        };
+        const currentConfig = getTTSConfig(guildId);
 
         setTTSConfig({
           ...currentConfig,
