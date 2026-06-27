@@ -35,6 +35,7 @@ import {
   TabPanel,
   TabPanels,
   Tabs,
+  Image,
 } from "@chakra-ui/react";
 import { motion } from "framer-motion";
 import {
