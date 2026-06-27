@@ -23,8 +23,6 @@ import {
   useDisclosure,
   Avatar,
   Divider,
-  Card,
-  CardBody,
   Stat,
   StatLabel,
   StatNumber,
@@ -366,53 +364,45 @@ export default function App() {
 
               {/* Stats Cards */}
               <Grid templateColumns={{ base: "1fr", md: "1fr 1fr", lg: "repeat(4, 1fr)" }} gap={6}>
-                <Card bg="gray.800" border="1px" borderColor="gray.700" borderRadius="xl">
-                  <CardBody>
-                    <Stat>
-                      <StatLabel color="gray.400">Servers</StatLabel>
-                      <StatNumber color="gold.400">{stats.guildCount}</StatNumber>
-                      <StatHelpText>
-                        <Badge colorScheme="green">+2 this week</Badge>
-                      </StatHelpText>
-                    </Stat>
-                  </CardBody>
-                </Card>
+                <Box bg="gray.800" border="1px" borderColor="gray.700" borderRadius="xl" p={6}>
+                  <Stat>
+                    <StatLabel color="gray.400">Servers</StatLabel>
+                    <StatNumber color="gold.400">{stats.guildCount}</StatNumber>
+                    <StatHelpText>
+                      <Badge colorScheme="green">+2 this week</Badge>
+                    </StatHelpText>
+                  </Stat>
+                </Box>
 
-                <Card bg="gray.800" border="1px" borderColor="gray.700" borderRadius="xl">
-                  <CardBody>
-                    <Stat>
-                      <StatLabel color="gray.400">Total Users</StatLabel>
-                      <StatNumber color="gold.400">{stats.userCount.toLocaleString()}</StatNumber>
-                      <StatHelpText>
-                        <Badge colorScheme="blue">Active</Badge>
-                      </StatHelpText>
-                    </Stat>
-                  </CardBody>
-                </Card>
+                <Box bg="gray.800" border="1px" borderColor="gray.700" borderRadius="xl" p={6}>
+                  <Stat>
+                    <StatLabel color="gray.400">Total Users</StatLabel>
+                    <StatNumber color="gold.400">{stats.userCount.toLocaleString()}</StatNumber>
+                    <StatHelpText>
+                      <Badge colorScheme="blue">Active</Badge>
+                    </StatHelpText>
+                  </Stat>
+                </Box>
 
-                <Card bg="gray.800" border="1px" borderColor="gray.700" borderRadius="xl">
-                  <CardBody>
-                    <Stat>
-                      <StatLabel color="gray.400">Active Servers</StatLabel>
-                      <StatNumber color="gold.400">{stats.activeGuilds}</StatNumber>
-                      <StatHelpText>
-                        <Badge colorScheme="purple">{Math.round((stats.activeGuilds / stats.guildCount) * 100)}%</Badge>
-                      </StatHelpText>
-                    </Stat>
-                  </CardBody>
-                </Card>
+                <Box bg="gray.800" border="1px" borderColor="gray.700" borderRadius="xl" p={6}>
+                  <Stat>
+                    <StatLabel color="gray.400">Active Servers</StatLabel>
+                    <StatNumber color="gold.400">{stats.activeGuilds}</StatNumber>
+                    <StatHelpText>
+                      <Badge colorScheme="purple">{Math.round((stats.activeGuilds / stats.guildCount) * 100)}%</Badge>
+                    </StatHelpText>
+                  </Stat>
+                </Box>
 
-                <Card bg="gray.800" border="1px" borderColor="gray.700" borderRadius="xl">
-                  <CardBody>
-                    <Stat>
-                      <StatLabel color="gray.400">Messages Sent</StatLabel>
-                      <StatNumber color="gold.400">{stats.messagesSent.toLocaleString()}</StatNumber>
-                      <StatHelpText>
-                        <Badge colorScheme="orange">This month</Badge>
-                      </StatHelpText>
-                    </Stat>
-                  </CardBody>
-                </Card>
+                <Box bg="gray.800" border="1px" borderColor="gray.700" borderRadius="xl" p={6}>
+                  <Stat>
+                    <StatLabel color="gray.400">Messages Sent</StatLabel>
+                    <StatNumber color="gold.400">{stats.messagesSent.toLocaleString()}</StatNumber>
+                    <StatHelpText>
+                      <Badge colorScheme="orange">This month</Badge>
+                    </StatHelpText>
+                  </Stat>
+                </Box>
               </Grid>
 
               {/* Quick Actions */}
@@ -780,64 +770,56 @@ export default function App() {
 
           <DrawerBody>
             <VStack spacing={6} pt={4}>
-              <Card bg="gray.700" border="1px" borderColor="gray.600" w="full" borderRadius="lg">
-                <CardBody>
-                  <Stat>
-                    <StatLabel color="gray.400">
-                      <Flex align="center">
-                        <Icon as={FaServer} mr={2} />
-                        Total Servers
-                      </Flex>
-                    </StatLabel>
-                    <StatNumber color="gold.400">{stats.guildCount}</StatNumber>
-                  </Stat>
-                </CardBody>
-              </Card>
+              <Box bg="gray.700" border="1px" borderColor="gray.600" w="full" borderRadius="lg" p={6}>
+                <Stat>
+                  <StatLabel color="gray.400">
+                    <Flex align="center">
+                      <Icon as={FaServer} mr={2} />
+                      Total Servers
+                    </Flex>
+                  </StatLabel>
+                  <StatNumber color="gold.400">{stats.guildCount}</StatNumber>
+                </Stat>
+              </Box>
 
-              <Card bg="gray.700" border="1px" borderColor="gray.600" w="full" borderRadius="lg">
-                <CardBody>
-                  <Stat>
-                    <StatLabel color="gray.400">
-                      <Flex align="center">
-                        <Icon as={FaUsers} mr={2} />
-                        Total Users
-                      </Flex>
-                    </StatLabel>
-                    <StatNumber color="gold.400">{stats.userCount.toLocaleString()}</StatNumber>
-                  </Stat>
-                </CardBody>
-              </Card>
+              <Box bg="gray.700" border="1px" borderColor="gray.600" w="full" borderRadius="lg" p={6}>
+                <Stat>
+                  <StatLabel color="gray.400">
+                    <Flex align="center">
+                      <Icon as={FaUsers} mr={2} />
+                      Total Users
+                    </Flex>
+                  </StatLabel>
+                  <StatNumber color="gold.400">{stats.userCount.toLocaleString()}</StatNumber>
+                </Stat>
+              </Box>
 
-              <Card bg="gray.700" border="1px" borderColor="gray.600" w="full" borderRadius="lg">
-                <CardBody>
-                  <Stat>
-                    <StatLabel color="gray.400">
-                      <Flex align="center">
-                        <Icon as={FaChartLine} mr={2} />
-                        Active Rate
-                      </Flex>
-                    </StatLabel>
-                    <StatNumber color="gold.400">
-                      {Math.round((stats.activeGuilds / stats.guildCount) * 100)}%
-                    </StatNumber>
-                  </Stat>
-                </CardBody>
-              </Card>
+              <Box bg="gray.700" border="1px" borderColor="gray.600" w="full" borderRadius="lg" p={6}>
+                <Stat>
+                  <StatLabel color="gray.400">
+                    <Flex align="center">
+                      <Icon as={FaChartLine} mr={2} />
+                      Active Rate
+                    </Flex>
+                  </StatLabel>
+                  <StatNumber color="gold.400">
+                    {Math.round((stats.activeGuilds / stats.guildCount) * 100)}%
+                  </StatNumber>
+                </Stat>
+              </Box>
 
-              <Card bg="gray.700" border="1px" borderColor="gray.600" w="full" borderRadius="lg">
-                <CardBody>
-                  <Stat>
-                    <StatLabel color="gray.400">
-                      <Flex align="center">
-                        <Icon as={FaDiscord} mr={2} />
-                        Active Features
-                      </Flex>
-                    </StatLabel>
-                    <StatNumber color="gold.400">2</StatNumber>
-                    <StatHelpText color="gray.400">Welcome & Leave</StatHelpText>
-                  </Stat>
-                </CardBody>
-              </Card>
+              <Box bg="gray.700" border="1px" borderColor="gray.600" w="full" borderRadius="lg" p={6}>
+                <Stat>
+                  <StatLabel color="gray.400">
+                    <Flex align="center">
+                      <Icon as={FaDiscord} mr={2} />
+                      Active Features
+                    </Flex>
+                  </StatLabel>
+                  <StatNumber color="gold.400">2</StatNumber>
+                  <StatHelpText color="gray.400">Welcome & Leave</StatHelpText>
+                </Stat>
+              </Box>
 
               <Divider borderColor="gray.700" />
 
