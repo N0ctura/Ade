@@ -12,7 +12,6 @@ import { logger } from "../lib/logger.js";
 import { loadConfig, saveConfig, GuildTTSConfig } from "./storage.js";
 import gTTS from "gtts";
 import { Readable } from "node:stream";
-import { OpusEncoder } from "@discordjs/opus";
 import { pipeline } from "node:stream/promises";
 
 // Map per tenere traccia delle connessioni vocali per ogni guild
