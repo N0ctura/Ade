@@ -16,11 +16,11 @@ COPY . .
 # and let pnpm regenerate lockfile if platform entries differ
 RUN pnpm install --no-frozen-lockfile
 
+# Install dashboard dependencies and build
+RUN cd dashboard && npm install && npm run build
+
 # Build the api-server bundle
 RUN pnpm --filter @workspace/api-server run build
-
-# Build the React dashboard
-RUN cd dashboard && npm run build
 
 ENV NODE_ENV=production
 
