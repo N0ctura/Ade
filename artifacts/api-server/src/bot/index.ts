@@ -9,6 +9,7 @@ import {
   EmbedBuilder,
   type Interaction,
   type Message,
+  type TextChannel,
 } from "discord.js";
 import { logger } from "../lib/logger.js";
 import * as sondaggioCommand from "./commands/sondaggio.js";
@@ -21,6 +22,7 @@ import { schedulePollClose } from "./poll-timer.js";
 import { fetchPlayerByUsername, fetchClanById } from "./wolvesville.js";
 import { generateProfileCard } from "./profile-card.js";
 import { handleMemberJoin, handleMemberLeave } from "./welcome-leave.js";
+import { setDiscordClient } from "./discord-api.js";
 
 type BotCommand = typeof sondaggioCommand | typeof impostazioniCommand | typeof debugTempliCommand | typeof fineCommand;
 
@@ -70,6 +72,75 @@ export async function startBot(): Promise<void> {
 
   client.once("ready", async (c) => {
     logger.info({ tag: c.user.tag }, "Bot Discord connesso");
+    setDiscordClient(c);
+
+    // Timer per messaggi programmati
+    setInterval(async () => {
+      const config = loadConfig();
+      const now = new Date();
+      let updated = false;
+
+      for (const msg of config.scheduledMessages || []) {
+        if (!msg.enabled) continue;
+
+        const scheduledDate = new Date(msg.scheduledTime);
+
+        if (msg.isRecurring) {
+          // Per semplicità, usiamo interval giornaliero, settimanale, mensile
+          const lastSent = msg.lastSent ? new Date(msg.lastSent) : null;
+          let shouldSend = false;
+
+          if (!lastSent) {
+            shouldSend = now >= scheduledDate;
+          } else {
+            const timeDiff = now.getTime() - lastSent.getTime();
+            const oneDay = 24 * 60 * 60 * 1000;
+
+            if (msg.recurrenceInterval === 'daily') {
+              shouldSend = timeDiff >= oneDay;
+            } else if (msg.recurrenceInterval === 'weekly') {
+              shouldSend = timeDiff >= 7 * oneDay;
+            } else if (msg.recurrenceInterval === 'monthly') {
+              shouldSend = timeDiff >= 30 * oneDay;
+            }
+          }
+
+          if (shouldSend) {
+            const channel = c.channels.cache.get(msg.channelId) as TextChannel;
+            if (channel) {
+              try {
+                await channel.send(msg.message);
+                msg.lastSent = now.toISOString();
+                updated = true;
+                logger.info({ guildId: msg.guildId, channelId: msg.channelId }, "Recurring message sent");
+              } catch (err) {
+                logger.error({ err, msgId: msg.id }, "Error sending recurring message");
+              }
+            }
+          }
+        } else {
+          // One-time message
+          if (!msg.lastSent && now >= scheduledDate) {
+            const channel = c.channels.cache.get(msg.channelId) as TextChannel;
+            if (channel) {
+              try {
+                await channel.send(msg.message);
+                msg.lastSent = now.toISOString();
+                msg.enabled = false;
+                updated = true;
+                logger.info({ guildId: msg.guildId, channelId: msg.channelId }, "One-time message sent");
+              } catch (err) {
+                logger.error({ err, msgId: msg.id }, "Error sending one-time message");
+              }
+            }
+          }
+        }
+      }
+
+      if (updated) {
+        saveConfig(config);
+      }
+    }, 60000); // Controlla ogni minuto
 
     const rest = new REST().setToken(token);
     const commandsData = [
@@ -102,6 +173,14 @@ export async function startBot(): Promise<void> {
 
   // Welcome/Leave event listeners
   client.on("guildMemberAdd", async (member) => {
+    if (member.partial) {
+      try {
+        await member.fetch();
+      } catch (err) {
+        logger.error({ err }, "Error fetching partial member");
+        return;
+      }
+    }
     try {
       await handleMemberJoin(member);
     } catch (err) {
@@ -110,6 +189,14 @@ export async function startBot(): Promise<void> {
   });
 
   client.on("guildMemberRemove", async (member) => {
+    if (member.partial) {
+      try {
+        await member.fetch();
+      } catch (err) {
+        logger.error({ err }, "Error fetching partial member");
+        return;
+      }
+    }
     try {
       await handleMemberLeave(member);
     } catch (err) {
@@ -172,6 +259,41 @@ export async function startBot(): Promise<void> {
   client.on("messageCreate", async (message: Message) => {
     if (message.author.bot) return;
     const content = message.content.trim();
+    const guildId = message.guild?.id;
+
+    // Auto responses
+    if (guildId) {
+      const config = loadConfig();
+      const autoResponses = (config.autoResponses || []).filter(r => r.guildId === guildId && r.enabled);
+
+      for (const response of autoResponses) {
+        let matched = false;
+
+        if (response.isRegex) {
+          try {
+            const regex = new RegExp(response.trigger, 'i');
+            matched = regex.test(content);
+          } catch (err) {
+            logger.error({ err, trigger: response.trigger }, "Invalid regex in auto response");
+            continue;
+          }
+        } else {
+          matched = content.toLowerCase().includes(response.trigger.toLowerCase());
+        }
+
+        if (matched) {
+          try {
+            await message.reply(response.response);
+            logger.info({ guildId, trigger: response.trigger }, "Auto response sent");
+          } catch (err) {
+            logger.error({ err, responseId: response.id }, "Error sending auto response");
+          }
+          break;
+        }
+      }
+    }
+
+    // .username command for Wolvesville profile
     if (!content.startsWith(".") || content.length < 2) return;
     if (content.startsWith("./") || content.startsWith("..")) return;
 
@@ -179,7 +301,10 @@ export async function startBot(): Promise<void> {
     if (!username) return;
 
     try {
-      await message.channel.sendTyping();
+      // @ts-ignore - sendTyping exists on text channels
+      if (message.channel.isTextBased()) {
+        await message.channel.sendTyping();
+      }
       const player = await fetchPlayerByUsername(username);
 
       if (!player) {
@@ -189,13 +314,13 @@ export async function startBot(): Promise<void> {
 
       const p = player as any;
       const stats = player.gameStats;
-      const totalWins   = stats?.totalWinCount ?? 0;
+      const totalWins = stats?.totalWinCount ?? 0;
       const totalLosses = stats?.totalLoseCount ?? 0;
-      const totalTies   = stats?.totalTieCount ?? 0;
+      const totalTies = stats?.totalTieCount ?? 0;
       const gamesPlayed = totalWins + totalLosses + totalTies;
       const villageWins = stats?.villageWinCount ?? 0;
-      const wolfWins    = stats?.werewolfWinCount ?? 0;
-      const winRate     = gamesPlayed > 0 ? ((totalWins / gamesPlayed) * 100).toFixed(1) : null;
+      const wolfWins = stats?.werewolfWinCount ?? 0;
+      const winRate = gamesPlayed > 0 ? ((totalWins / gamesPlayed) * 100).toFixed(1) : null;
 
       // Clan name
       let clanName: string | undefined;
@@ -246,9 +371,9 @@ export async function startBot(): Promise<void> {
 
       embed.addFields(
         { name: "🆔 ID", value: `\`${player.id}\``, inline: false },
-        { name: "🏰 Clan",         value: clanName ?? "Nessuno",            inline: true },
-        { name: "🕐 Ultimo accesso", value: timeAgo(p.lastOnline),          inline: true },
-        { name: "📅 Creato",        value: formatDate(p.creationTime),      inline: true },
+        { name: "🏰 Clan", value: clanName ?? "Nessuno", inline: true },
+        { name: "🕐 Ultimo accesso", value: timeAgo(p.lastOnline), inline: true },
+        { name: "📅 Creato", value: formatDate(p.creationTime), inline: true },
       );
 
       await message.reply({ embeds: [embed], files: [attachment] });

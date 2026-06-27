@@ -54,18 +54,19 @@ const SidebarItem = ({ icon, label, isActive, onClick }) => (
     align="center"
     py={3}
     px={4}
-    borderRadius="lg"
+    borderRadius={0}
     cursor="pointer"
-    bg={isActive ? "gold.500" : "transparent"}
-    color={isActive ? "gray.900" : "gray.300"}
+    bg={isActive ? "#5865F2" : "transparent"}
+    color={isActive ? "#ffffff" : "#B9BBBE"}
     fontWeight={isActive ? "bold" : "medium"}
-    transition="all 0.2s"
+    transition="all 0.15s"
     _hover={{
-      bg: isActive ? "gold.500" : "gray.700",
+      bg: isActive ? "#4752c4" : "#36393f",
+      color: "#ffffff",
     }}
     onClick={onClick}
-    whileHover={{ scale: 1.02 }}
-    whileTap={{ scale: 0.98 }}
+    whileHover={{ scale: 1.01 }}
+    whileTap={{ scale: 0.99 }}
   >
     <Icon as={icon} mr={3} boxSize={5} />
     <Text>{label}</Text>
@@ -73,7 +74,7 @@ const SidebarItem = ({ icon, label, isActive, onClick }) => (
 );
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState("welcome");
+  const [activeTab, setActiveTab] = useState("messages");
   const [guilds, setGuilds] = useState([]);
   const [channels, setChannels] = useState({});
   const [loading, setLoading] = useState(true);
@@ -81,14 +82,11 @@ export default function App() {
   const { isOpen, onOpen, onClose } = useDisclosure();
   const toast = useToast();
 
-  // Welcome form state
-  const [welcomeGuild, setWelcomeGuild] = useState("");
+  // Form state
+  const [selectedGuild, setSelectedGuild] = useState("");
   const [welcomeChannel, setWelcomeChannel] = useState("");
   const [welcomeMessage, setWelcomeMessage] = useState("");
   const [welcomeEnabled, setWelcomeEnabled] = useState(true);
-
-  // Leave form state
-  const [leaveGuild, setLeaveGuild] = useState("");
   const [leaveChannel, setLeaveChannel] = useState("");
   const [leaveMessage, setLeaveMessage] = useState("");
   const [leaveEnabled, setLeaveEnabled] = useState(true);
@@ -128,7 +126,7 @@ export default function App() {
 
   const loadConfigs = useCallback(async () => {
     try {
-      const res = await fetch("/api/configs");
+      const res = await fetch(`${BOT_API_URL}/api/discord/config`);
       if (res.ok) {
         const data = await res.json();
         setConfigs(data);
@@ -144,18 +142,14 @@ export default function App() {
   }, [loadGuilds, loadConfigs]);
 
   useEffect(() => {
-    if (welcomeGuild) loadChannels(welcomeGuild, "welcome");
-  }, [welcomeGuild, loadChannels]);
+    if (selectedGuild) loadChannels(selectedGuild, "both");
+  }, [selectedGuild, loadChannels]);
 
-  useEffect(() => {
-    if (leaveGuild) loadChannels(leaveGuild, "leave");
-  }, [leaveGuild, loadChannels]);
-
-  const saveWelcome = async () => {
-    if (!welcomeGuild || !welcomeChannel || !welcomeMessage) {
+  const saveConfig = async () => {
+    if (!selectedGuild) {
       toast({
         title: "Error",
-        description: "Please fill all fields",
+        description: "Please select a server",
         status: "error",
         duration: 3000,
         isClosable: true,
@@ -163,66 +157,18 @@ export default function App() {
       return;
     }
 
-    const guildName = guilds.find((g) => g.id === welcomeGuild)?.name || "Unknown";
+    const guildName = guilds.find((g) => g.id === selectedGuild)?.name || "Unknown";
 
     try {
-      const res = await fetch("/api/config", {
+      const res = await fetch(`${BOT_API_URL}/api/discord/config`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          type: "welcome",
-          guildId: welcomeGuild,
+          guildId: selectedGuild,
           guildName,
           welcomeChannelId: welcomeChannel,
           welcomeMessage,
           welcomeEnabled,
-        }),
-      });
-
-      if (res.ok) {
-        toast({
-          title: "Success",
-          description: "Welcome message saved!",
-          status: "success",
-          duration: 3000,
-          isClosable: true,
-        });
-        loadConfigs();
-      }
-    } catch (err) {
-      console.error("Error saving welcome:", err);
-      toast({
-        title: "Error",
-        description: "Failed to save welcome message",
-        status: "error",
-        duration: 3000,
-        isClosable: true,
-      });
-    }
-  };
-
-  const saveLeave = async () => {
-    if (!leaveGuild || !leaveChannel || !leaveMessage) {
-      toast({
-        title: "Error",
-        description: "Please fill all fields",
-        status: "error",
-        duration: 3000,
-        isClosable: true,
-      });
-      return;
-    }
-
-    const guildName = guilds.find((g) => g.id === leaveGuild)?.name || "Unknown";
-
-    try {
-      const res = await fetch("/api/config", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type: "leave",
-          guildId: leaveGuild,
-          guildName,
           leaveChannelId: leaveChannel,
           leaveMessage,
           leaveEnabled,
@@ -232,7 +178,7 @@ export default function App() {
       if (res.ok) {
         toast({
           title: "Success",
-          description: "Leave message saved!",
+          description: "Configuration saved!",
           status: "success",
           duration: 3000,
           isClosable: true,
@@ -240,10 +186,10 @@ export default function App() {
         loadConfigs();
       }
     } catch (err) {
-      console.error("Error saving leave:", err);
+      console.error("Error saving config:", err);
       toast({
         title: "Error",
-        description: "Failed to save leave message",
+        description: "Failed to save configuration",
         status: "error",
         duration: 3000,
         isClosable: true,
@@ -253,22 +199,22 @@ export default function App() {
 
   if (loading) {
     return (
-      <Box display="flex" justifyContent="center" alignItems="center" minH="100vh" bg="gray.900">
-        <Spinner size="xl" color="gold.500" />
+      <Box display="flex" justifyContent="center" alignItems="center" minH="100vh" bg="#36393f">
+        <Spinner size="xl" color="#5865F2" />
       </Box>
     );
   }
 
   return (
-    <Flex minH="100vh" bg="gray.900">
+    <Flex minH="100vh" bg="#36393f">
       {/* Sidebar */}
       <MotionBox
         initial={{ x: -100, opacity: 0 }}
         animate={{ x: 0, opacity: 1 }}
         w="280px"
-        bg="gray.800"
+        bg="#202225"
         borderRight="1px"
-        borderColor="gray.700"
+        borderColor="#202225"
         p={5}
         display="flex"
         flexDirection="column"
@@ -280,13 +226,13 @@ export default function App() {
             size="lg"
             name="Celestial"
             border="2px solid"
-            borderColor="gold.500"
+            borderColor="#5865F2"
           />
           <VStack align="start" ml={4} spacing={0}>
-            <Heading size="md" color="gold.400">
+            <Heading size="md" color="#ffffff">
               Celestial
             </Heading>
-            <Text fontSize="xs" color="gray.400">
+            <Text fontSize="xs" color="#72767d">
               Bot Dashboard
             </Text>
           </VStack>
@@ -302,15 +248,9 @@ export default function App() {
           />
           <SidebarItem
             icon={FaDoorOpen}
-            label="Welcome Message"
-            isActive={activeTab === "welcome"}
-            onClick={() => setActiveTab("welcome")}
-          />
-          <SidebarItem
-            icon={FaWaveSquare}
-            label="Leave Message"
-            isActive={activeTab === "leave"}
-            onClick={() => setActiveTab("leave")}
+            label="Messages"
+            isActive={activeTab === "messages"}
+            onClick={() => setActiveTab("messages")}
           />
           <SidebarItem
             icon={FaCog}
@@ -322,18 +262,19 @@ export default function App() {
 
         {/* Preview Button */}
         <VStack spacing={3} mt={4}>
-          <Divider borderColor="gray.700" />
+          <Divider borderColor="#202225" />
           <Button
             leftIcon={<FaEye />}
-            colorScheme="gold"
+            colorScheme="blue"
             variant="outline"
             w="full"
             onClick={onOpen}
-            borderColor="gold.500"
-            color="gold.400"
+            borderColor="#5865F2"
+            color="#5865F2"
+            borderRadius={0}
             _hover={{
-              bg: "gold.500",
-              color: "gray.900",
+              bg: "#5865F2",
+              color: "#ffffff",
             }}
           >
             Preview Stats
@@ -351,99 +292,92 @@ export default function App() {
           >
             <VStack spacing={8} align="stretch">
               <Box>
-                <Heading size="2xl" mb={2} bgGradient="linear(to-r, gold.400, gold.600)" bgClip="text">
+                <Heading size="2xl" mb={2} color="#ffffff">
                   Welcome back!
                 </Heading>
-                <Text color="gray.400" fontSize="lg">
+                <Text color="#72767d" fontSize="lg">
                   Manage your Celestial bot settings here
                 </Text>
               </Box>
 
               {/* Stats Cards */}
               <Grid templateColumns={{ base: "1fr", md: "1fr 1fr", lg: "repeat(4, 1fr)" }} gap={6}>
-                <Box bg="gray.800" border="1px" borderColor="gray.700" borderRadius="xl" p={6}>
+                <Box bg="#2f3136" border="1px" borderColor="#202225" borderRadius={0} p={6}>
                   <Stat>
-                    <StatLabel color="gray.400">Servers</StatLabel>
-                    <StatNumber color="gold.400">{stats.guildCount}</StatNumber>
+                    <StatLabel color="#72767d">Servers</StatLabel>
+                    <StatNumber color="#5865F2">{stats.guildCount}</StatNumber>
                     <StatHelpText>
-                      <Badge colorScheme="green">+2 this week</Badge>
+                      <Badge colorScheme="green" borderRadius={0}>+2 this week</Badge>
                     </StatHelpText>
                   </Stat>
                 </Box>
 
-                <Box bg="gray.800" border="1px" borderColor="gray.700" borderRadius="xl" p={6}>
+                <Box bg="#2f3136" border="1px" borderColor="#202225" borderRadius={0} p={6}>
                   <Stat>
-                    <StatLabel color="gray.400">Total Users</StatLabel>
-                    <StatNumber color="gold.400">{stats.userCount.toLocaleString()}</StatNumber>
+                    <StatLabel color="#72767d">Total Users</StatLabel>
+                    <StatNumber color="#5865F2">{stats.userCount.toLocaleString()}</StatNumber>
                     <StatHelpText>
-                      <Badge colorScheme="blue">Active</Badge>
+                      <Badge colorScheme="blue" borderRadius={0}>Active</Badge>
                     </StatHelpText>
                   </Stat>
                 </Box>
 
-                <Box bg="gray.800" border="1px" borderColor="gray.700" borderRadius="xl" p={6}>
+                <Box bg="#2f3136" border="1px" borderColor="#202225" borderRadius={0} p={6}>
                   <Stat>
-                    <StatLabel color="gray.400">Active Servers</StatLabel>
-                    <StatNumber color="gold.400">{stats.activeGuilds}</StatNumber>
+                    <StatLabel color="#72767d">Active Servers</StatLabel>
+                    <StatNumber color="#5865F2">{stats.activeGuilds}</StatNumber>
                     <StatHelpText>
-                      <Badge colorScheme="purple">{Math.round((stats.activeGuilds / stats.guildCount) * 100)}%</Badge>
+                      <Badge colorScheme="purple" borderRadius={0}>{Math.round((stats.activeGuilds / stats.guildCount) * 100)}%</Badge>
                     </StatHelpText>
                   </Stat>
                 </Box>
 
-                <Box bg="gray.800" border="1px" borderColor="gray.700" borderRadius="xl" p={6}>
+                <Box bg="#2f3136" border="1px" borderColor="#202225" borderRadius={0} p={6}>
                   <Stat>
-                    <StatLabel color="gray.400">Messages Sent</StatLabel>
-                    <StatNumber color="gold.400">{stats.messagesSent.toLocaleString()}</StatNumber>
+                    <StatLabel color="#72767d">Messages Sent</StatLabel>
+                    <StatNumber color="#5865F2">{stats.messagesSent.toLocaleString()}</StatNumber>
                     <StatHelpText>
-                      <Badge colorScheme="orange">This month</Badge>
+                      <Badge colorScheme="orange" borderRadius={0}>This month</Badge>
                     </StatHelpText>
                   </Stat>
                 </Box>
               </Grid>
 
               {/* Quick Actions */}
-              <Box bg="gray.800" p={8} borderRadius="xl" border="1px" borderColor="gray.700">
-                <Heading size="lg" mb={6} color="gold.400">
+              <Box bg="#2f3136" p={8} borderRadius={0} border="1px" borderColor="#202225">
+                <Heading size="lg" mb={6} color="#ffffff">
                   Quick Actions
                 </Heading>
                 <Grid templateColumns={{ base: "1fr", md: "1fr 1fr" }} gap={4}>
                   <Button
                     leftIcon={<FaDoorOpen />}
-                    colorScheme="green"
+                    colorScheme="blue"
                     size="lg"
-                    onClick={() => setActiveTab("welcome")}
-                    borderRadius="lg"
+                    onClick={() => setActiveTab("messages")}
+                    borderRadius={0}
+                    bg="#5865F2"
+                    _hover={{ bg: "#4752c4" }}
                   >
-                    Setup Welcome
-                  </Button>
-                  <Button
-                    leftIcon={<FaWaveSquare />}
-                    colorScheme="red"
-                    size="lg"
-                    onClick={() => setActiveTab("leave")}
-                    borderRadius="lg"
-                  >
-                    Setup Leave
+                    Setup Messages
                   </Button>
                 </Grid>
               </Box>
 
               {/* Saved Configs */}
-              <Box bg="gray.800" p={8} borderRadius="xl" border="1px" borderColor="gray.700">
-                <Heading size="lg" mb={6} color="gold.400">
-                  📋 Saved Configurations
+              <Box bg="#2f3136" p={8} borderRadius={0} border="1px" borderColor="#202225">
+                <Heading size="lg" mb={6} color="#ffffff">
+                  Saved Configurations
                 </Heading>
                 {configs.length === 0 ? (
-                  <Text color="gray.400">No configurations saved yet</Text>
+                  <Text color="#72767d">No configurations saved yet</Text>
                 ) : (
                   <VStack spacing={3} align="stretch">
                     {configs.map((config) => (
-                      <Box key={config.guildId} bg="gray.700" p={4} borderRadius="md" border="1px" borderColor="gray.600">
-                        <Text fontWeight="bold">{config.guildName}</Text>
-                        <Text fontSize="sm" color="gray.400">
-                          Welcome: {config.welcomeEnabled ? "✅" : "❌"} | Leave:{" "}
-                          {config.leaveEnabled ? "✅" : "❌"}
+                      <Box key={config.guildId} bg="#36393f" p={4} borderRadius={0} border="1px" borderColor="#202225">
+                        <Text fontWeight="bold" color="#ffffff">{config.guildName}</Text>
+                        <Text fontSize="sm" color="#72767d">
+                          Welcome: {config.welcomeEnabled ? "Enabled" : "Disabled"} | Leave:{" "}
+                          {config.leaveEnabled ? "Enabled" : "Disabled"}
                         </Text>
                       </Box>
                     ))}
@@ -454,7 +388,7 @@ export default function App() {
           </MotionBox>
         )}
 
-        {activeTab === "welcome" && (
+        {activeTab === "messages" && (
           <MotionBox
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -462,26 +396,28 @@ export default function App() {
           >
             <VStack spacing={8} align="stretch">
               <Box>
-                <Heading size="2xl" mb={2} color="gold.400">
-                  👋 Welcome Message
+                <Heading size="2xl" mb={2} color="#ffffff">
+                  Welcome & Leave Messages
                 </Heading>
-                <Text color="gray.400">Configure your welcome messages for new members</Text>
+                <Text color="#72767d">Configure your welcome and leave messages</Text>
               </Box>
 
-              <Box bg="gray.800" p={8} borderRadius="xl" border="1px" borderColor="gray.700">
-                <VStack spacing={6} align="stretch">
+              <Box bg="#2f3136" p={8} borderRadius={0} border="1px" borderColor="#202225">
+                <VStack spacing={8} align="stretch">
+                  {/* Server Selection */}
                   <FormControl>
-                    <FormLabel fontWeight="bold">Server</FormLabel>
+                    <FormLabel fontWeight="bold" color="#ffffff">Server</FormLabel>
                     <Select
                       placeholder="Select a server..."
-                      value={welcomeGuild}
-                      onChange={(e) => setWelcomeGuild(e.target.value)}
-                      bg="gray.700"
-                      borderColor="gray.600"
-                      borderRadius="lg"
+                      value={selectedGuild}
+                      onChange={(e) => setSelectedGuild(e.target.value)}
+                      bg="#36393f"
+                      borderColor="#202225"
+                      borderRadius={0}
+                      color="#ffffff"
                       _focus={{
-                        borderColor: "gold.500",
-                        boxShadow: "0 0 0 1px gold.500",
+                        borderColor: "#5865F2",
+                        boxShadow: "0 0 0 1px #5865F2",
                       }}
                     >
                       {guilds.map((guild) => (
@@ -492,223 +428,168 @@ export default function App() {
                     </Select>
                   </FormControl>
 
-                  <FormControl>
-                    <FormLabel fontWeight="bold">Channel</FormLabel>
-                    <Select
-                      placeholder="Select a channel..."
-                      value={welcomeChannel}
-                      onChange={(e) => setWelcomeChannel(e.target.value)}
-                      bg="gray.700"
-                      borderColor="gray.600"
-                      borderRadius="lg"
-                      isDisabled={!welcomeGuild}
-                      _focus={{
-                        borderColor: "gold.500",
-                        boxShadow: "0 0 0 1px gold.500",
-                      }}
-                    >
-                      {(channels.welcome || []).map((channel) => (
-                        <option key={channel.id} value={channel.id}>
-                          #{channel.name}
-                        </option>
-                      ))}
-                    </Select>
-                  </FormControl>
+                  <Divider borderColor="#202225" />
 
-                  <FormControl>
-                    <FormLabel fontWeight="bold">Message</FormLabel>
-                    <Textarea
-                      placeholder="Use {user}, {username}, {guild}, {memberCount}"
-                      value={welcomeMessage}
-                      onChange={(e) => setWelcomeMessage(e.target.value)}
-                      bg="gray.700"
-                      borderColor="gray.600"
-                      borderRadius="lg"
-                      minH="150px"
-                      _focus={{
-                        borderColor: "gold.500",
-                        boxShadow: "0 0 0 1px gold.500",
-                      }}
-                    />
-                  </FormControl>
+                  {/* Welcome Section */}
+                  <Box>
+                    <Heading size="md" mb={4} color="#ffffff">
+                      Welcome Message
+                    </Heading>
+                    <VStack spacing={6} align="stretch">
+                      <FormControl>
+                        <FormLabel fontWeight="bold" color="#ffffff">Channel</FormLabel>
+                        <Select
+                          placeholder="Select a channel..."
+                          value={welcomeChannel}
+                          onChange={(e) => setWelcomeChannel(e.target.value)}
+                          bg="#36393f"
+                          borderColor="#202225"
+                          borderRadius={0}
+                          color="#ffffff"
+                          isDisabled={!selectedGuild}
+                          _focus={{
+                            borderColor: "#5865F2",
+                            boxShadow: "0 0 0 1px #5865F2",
+                          }}
+                        >
+                          {(channels.both || []).map((channel) => (
+                            <option key={channel.id} value={channel.id}>
+                              #{channel.name}
+                            </option>
+                          ))}
+                        </Select>
+                      </FormControl>
 
-                  <FormControl display="flex" alignItems="center">
-                    <Checkbox
-                      isChecked={welcomeEnabled}
-                      onChange={(e) => setWelcomeEnabled(e.target.checked)}
-                      mr={3}
-                      colorScheme="gold"
-                      size="lg"
-                    />
-                    <FormLabel mb={0} fontWeight="medium">Enable Welcome Message</FormLabel>
-                  </FormControl>
+                      <FormControl>
+                        <FormLabel fontWeight="bold" color="#ffffff">Message</FormLabel>
+                        <Textarea
+                          placeholder="Use {user}, {username}, {guild}, {memberCount}"
+                          value={welcomeMessage}
+                          onChange={(e) => setWelcomeMessage(e.target.value)}
+                          bg="#36393f"
+                          borderColor="#202225"
+                          borderRadius={0}
+                          color="#ffffff"
+                          minH="120px"
+                          _focus={{
+                            borderColor: "#5865F2",
+                            boxShadow: "0 0 0 1px #5865F2",
+                          }}
+                        />
+                      </FormControl>
+
+                      <FormControl display="flex" alignItems="center">
+                        <Checkbox
+                          isChecked={welcomeEnabled}
+                          onChange={(e) => setWelcomeEnabled(e.target.checked)}
+                          mr={3}
+                          colorScheme="blue"
+                          size="lg"
+                        />
+                        <FormLabel mb={0} fontWeight="medium" color="#ffffff">Enable Welcome Message</FormLabel>
+                      </FormControl>
+                    </VStack>
+                  </Box>
+
+                  <Divider borderColor="#202225" />
+
+                  {/* Leave Section */}
+                  <Box>
+                    <Heading size="md" mb={4} color="#ffffff">
+                      Leave Message
+                    </Heading>
+                    <VStack spacing={6} align="stretch">
+                      <FormControl>
+                        <FormLabel fontWeight="bold" color="#ffffff">Channel</FormLabel>
+                        <Select
+                          placeholder="Select a channel..."
+                          value={leaveChannel}
+                          onChange={(e) => setLeaveChannel(e.target.value)}
+                          bg="#36393f"
+                          borderColor="#202225"
+                          borderRadius={0}
+                          color="#ffffff"
+                          isDisabled={!selectedGuild}
+                          _focus={{
+                            borderColor: "#5865F2",
+                            boxShadow: "0 0 0 1px #5865F2",
+                          }}
+                        >
+                          {(channels.both || []).map((channel) => (
+                            <option key={channel.id} value={channel.id}>
+                              #{channel.name}
+                            </option>
+                          ))}
+                        </Select>
+                      </FormControl>
+
+                      <FormControl>
+                        <FormLabel fontWeight="bold" color="#ffffff">Message</FormLabel>
+                        <Textarea
+                          placeholder="Use {user}, {username}, {guild}, {memberCount}"
+                          value={leaveMessage}
+                          onChange={(e) => setLeaveMessage(e.target.value)}
+                          bg="#36393f"
+                          borderColor="#202225"
+                          borderRadius={0}
+                          color="#ffffff"
+                          minH="120px"
+                          _focus={{
+                            borderColor: "#5865F2",
+                            boxShadow: "0 0 0 1px #5865F2",
+                          }}
+                        />
+                      </FormControl>
+
+                      <FormControl display="flex" alignItems="center">
+                        <Checkbox
+                          isChecked={leaveEnabled}
+                          onChange={(e) => setLeaveEnabled(e.target.checked)}
+                          mr={3}
+                          colorScheme="blue"
+                          size="lg"
+                        />
+                        <FormLabel mb={0} fontWeight="medium" color="#ffffff">Enable Leave Message</FormLabel>
+                      </FormControl>
+                    </VStack>
+                  </Box>
 
                   <Button
-                    colorScheme="gold"
-                    onClick={saveWelcome}
+                    colorScheme="blue"
+                    onClick={saveConfig}
                     size="lg"
-                    borderRadius="lg"
+                    borderRadius={0}
+                    bg="#5865F2"
                     _hover={{
-                      bg: "gold.600",
+                      bg: "#4752c4",
                     }}
                   >
-                    💾 Save Welcome Configuration
+                    Save Configuration
                   </Button>
                 </VStack>
               </Box>
 
               {/* Variables Info */}
-              <Box bg="gray.800" p={8} borderRadius="xl" border="1px" borderColor="gray.700">
-                <Heading size="md" mb={6} color="gold.400">
-                  📝 Available Variables
+              <Box bg="#2f3136" p={8} borderRadius={0} border="1px" borderColor="#202225">
+                <Heading size="md" mb={6} color="#ffffff">
+                  Available Variables
                 </Heading>
                 <Grid templateColumns={{ base: "1fr", md: "1fr 1fr" }} gap={4}>
-                  <Box bg="gray.700" p={4} borderRadius="md">
-                    <Text fontWeight="bold" color="gold.400">{"{user}"}</Text>
-                    <Text color="gray.400">User mention (@username)</Text>
+                  <Box bg="#36393f" p={4} borderRadius={0} border="1px" borderColor="#202225">
+                    <Text fontWeight="bold" color="#5865F2">{"{user}"}</Text>
+                    <Text color="#72767d">User mention (@username)</Text>
                   </Box>
-                  <Box bg="gray.700" p={4} borderRadius="md">
-                    <Text fontWeight="bold" color="gold.400">{"{username}"}</Text>
-                    <Text color="gray.400">Username without mention</Text>
+                  <Box bg="#36393f" p={4} borderRadius={0} border="1px" borderColor="#202225">
+                    <Text fontWeight="bold" color="#5865F2">{"{username}"}</Text>
+                    <Text color="#72767d">Username without mention</Text>
                   </Box>
-                  <Box bg="gray.700" p={4} borderRadius="md">
-                    <Text fontWeight="bold" color="gold.400">{"{guild}"}</Text>
-                    <Text color="gray.400">Server name</Text>
+                  <Box bg="#36393f" p={4} borderRadius={0} border="1px" borderColor="#202225">
+                    <Text fontWeight="bold" color="#5865F2">{"{guild}"}</Text>
+                    <Text color="#72767d">Server name</Text>
                   </Box>
-                  <Box bg="gray.700" p={4} borderRadius="md">
-                    <Text fontWeight="bold" color="gold.400">{"{memberCount}"}</Text>
-                    <Text color="gray.400">Number of members</Text>
-                  </Box>
-                </Grid>
-              </Box>
-            </VStack>
-          </MotionBox>
-        )}
-
-        {activeTab === "leave" && (
-          <MotionBox
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3 }}
-          >
-            <VStack spacing={8} align="stretch">
-              <Box>
-                <Heading size="2xl" mb={2} color="gold.400">
-                  👋 Leave Message
-                </Heading>
-                <Text color="gray.400">Configure your leave messages for departing members</Text>
-              </Box>
-
-              <Box bg="gray.800" p={8} borderRadius="xl" border="1px" borderColor="gray.700">
-                <VStack spacing={6} align="stretch">
-                  <FormControl>
-                    <FormLabel fontWeight="bold">Server</FormLabel>
-                    <Select
-                      placeholder="Select a server..."
-                      value={leaveGuild}
-                      onChange={(e) => setLeaveGuild(e.target.value)}
-                      bg="gray.700"
-                      borderColor="gray.600"
-                      borderRadius="lg"
-                      _focus={{
-                        borderColor: "gold.500",
-                        boxShadow: "0 0 0 1px gold.500",
-                      }}
-                    >
-                      {guilds.map((guild) => (
-                        <option key={guild.id} value={guild.id}>
-                          {guild.name}
-                        </option>
-                      ))}
-                    </Select>
-                  </FormControl>
-
-                  <FormControl>
-                    <FormLabel fontWeight="bold">Channel</FormLabel>
-                    <Select
-                      placeholder="Select a channel..."
-                      value={leaveChannel}
-                      onChange={(e) => setLeaveChannel(e.target.value)}
-                      bg="gray.700"
-                      borderColor="gray.600"
-                      borderRadius="lg"
-                      isDisabled={!leaveGuild}
-                      _focus={{
-                        borderColor: "gold.500",
-                        boxShadow: "0 0 0 1px gold.500",
-                      }}
-                    >
-                      {(channels.leave || []).map((channel) => (
-                        <option key={channel.id} value={channel.id}>
-                          #{channel.name}
-                        </option>
-                      ))}
-                    </Select>
-                  </FormControl>
-
-                  <FormControl>
-                    <FormLabel fontWeight="bold">Message</FormLabel>
-                    <Textarea
-                      placeholder="Use {user}, {username}, {guild}, {memberCount}"
-                      value={leaveMessage}
-                      onChange={(e) => setLeaveMessage(e.target.value)}
-                      bg="gray.700"
-                      borderColor="gray.600"
-                      borderRadius="lg"
-                      minH="150px"
-                      _focus={{
-                        borderColor: "gold.500",
-                        boxShadow: "0 0 0 1px gold.500",
-                      }}
-                    />
-                  </FormControl>
-
-                  <FormControl display="flex" alignItems="center">
-                    <Checkbox
-                      isChecked={leaveEnabled}
-                      onChange={(e) => setLeaveEnabled(e.target.checked)}
-                      mr={3}
-                      colorScheme="gold"
-                      size="lg"
-                    />
-                    <FormLabel mb={0} fontWeight="medium">Enable Leave Message</FormLabel>
-                  </FormControl>
-
-                  <Button
-                    colorScheme="gold"
-                    onClick={saveLeave}
-                    size="lg"
-                    borderRadius="lg"
-                    _hover={{
-                      bg: "gold.600",
-                    }}
-                  >
-                    💾 Save Leave Configuration
-                  </Button>
-                </VStack>
-              </Box>
-
-              {/* Variables Info */}
-              <Box bg="gray.800" p={8} borderRadius="xl" border="1px" borderColor="gray.700">
-                <Heading size="md" mb={6} color="gold.400">
-                  📝 Available Variables
-                </Heading>
-                <Grid templateColumns={{ base: "1fr", md: "1fr 1fr" }} gap={4}>
-                  <Box bg="gray.700" p={4} borderRadius="md">
-                    <Text fontWeight="bold" color="gold.400">{"{user}"}</Text>
-                    <Text color="gray.400">User mention (@username)</Text>
-                  </Box>
-                  <Box bg="gray.700" p={4} borderRadius="md">
-                    <Text fontWeight="bold" color="gold.400">{"{username}"}</Text>
-                    <Text color="gray.400">Username without mention</Text>
-                  </Box>
-                  <Box bg="gray.700" p={4} borderRadius="md">
-                    <Text fontWeight="bold" color="gold.400">{"{guild}"}</Text>
-                    <Text color="gray.400">Server name</Text>
-                  </Box>
-                  <Box bg="gray.700" p={4} borderRadius="md">
-                    <Text fontWeight="bold" color="gold.400">{"{memberCount}"}</Text>
-                    <Text color="gray.400">Number of members</Text>
+                  <Box bg="#36393f" p={4} borderRadius={0} border="1px" borderColor="#202225">
+                    <Text fontWeight="bold" color="#5865F2">{"{memberCount}"}</Text>
+                    <Text color="#72767d">Number of members</Text>
                   </Box>
                 </Grid>
               </Box>
@@ -724,18 +605,18 @@ export default function App() {
           >
             <VStack spacing={8} align="stretch">
               <Box>
-                <Heading size="2xl" mb={2} color="gold.400">
-                  ⚙️ Settings
+                <Heading size="2xl" mb={2} color="#ffffff">
+                  Settings
                 </Heading>
-                <Text color="gray.400">General bot and dashboard settings</Text>
+                <Text color="#72767d">General bot and dashboard settings</Text>
               </Box>
 
-              <Box bg="gray.800" p={8} borderRadius="xl" border="1px" borderColor="gray.700">
+              <Box bg="#2f3136" p={8} borderRadius={0} border="1px" borderColor="#202225">
                 <VStack spacing={6} align="stretch">
-                  <Text fontSize="lg" fontWeight="bold" color="gold.400">
+                  <Text fontSize="lg" fontWeight="bold" color="#ffffff">
                     Coming Soon!
                   </Text>
-                  <Text color="gray.400">
+                  <Text color="#72767d">
                     Settings page is under construction. Check back later!
                   </Text>
                 </VStack>
@@ -748,8 +629,8 @@ export default function App() {
       {/* Preview Drawer */}
       <Drawer isOpen={isOpen} placement="left" onClose={onClose} size="md">
         <DrawerOverlay />
-        <DrawerContent bg="gray.800" borderRight="1px" borderColor="gray.700">
-          <DrawerHeader borderBottom="1px" borderColor="gray.700">
+        <DrawerContent bg="#202225" borderRight="1px" borderColor="#202225">
+          <DrawerHeader borderBottom="1px" borderColor="#202225">
             <Flex align="center">
               <Avatar
                 src="/celestial-logo-slim.png"
@@ -757,9 +638,9 @@ export default function App() {
                 name="Celestial"
                 mr={3}
                 border="2px solid"
-                borderColor="gold.500"
+                borderColor="#5865F2"
               />
-              <Heading size="lg" color="gold.400">
+              <Heading size="lg" color="#ffffff">
                 Bot Stats Preview
               </Heading>
             </Flex>
@@ -767,60 +648,60 @@ export default function App() {
 
           <DrawerBody>
             <VStack spacing={6} pt={4}>
-              <Box bg="gray.700" border="1px" borderColor="gray.600" w="full" borderRadius="lg" p={6}>
+              <Box bg="#2f3136" border="1px" borderColor="#202225" w="full" borderRadius={0} p={6}>
                 <Stat>
-                  <StatLabel color="gray.400">
+                  <StatLabel color="#72767d">
                     <Flex align="center">
                       <Icon as={FaServer} mr={2} />
                       Total Servers
                     </Flex>
                   </StatLabel>
-                  <StatNumber color="gold.400">{stats.guildCount}</StatNumber>
+                  <StatNumber color="#5865F2">{stats.guildCount}</StatNumber>
                 </Stat>
               </Box>
 
-              <Box bg="gray.700" border="1px" borderColor="gray.600" w="full" borderRadius="lg" p={6}>
+              <Box bg="#2f3136" border="1px" borderColor="#202225" w="full" borderRadius={0} p={6}>
                 <Stat>
-                  <StatLabel color="gray.400">
+                  <StatLabel color="#72767d">
                     <Flex align="center">
                       <Icon as={FaUsers} mr={2} />
                       Total Users
                     </Flex>
                   </StatLabel>
-                  <StatNumber color="gold.400">{stats.userCount.toLocaleString()}</StatNumber>
+                  <StatNumber color="#5865F2">{stats.userCount.toLocaleString()}</StatNumber>
                 </Stat>
               </Box>
 
-              <Box bg="gray.700" border="1px" borderColor="gray.600" w="full" borderRadius="lg" p={6}>
+              <Box bg="#2f3136" border="1px" borderColor="#202225" w="full" borderRadius={0} p={6}>
                 <Stat>
-                  <StatLabel color="gray.400">
+                  <StatLabel color="#72767d">
                     <Flex align="center">
                       <Icon as={FaChartLine} mr={2} />
                       Active Rate
                     </Flex>
                   </StatLabel>
-                  <StatNumber color="gold.400">
+                  <StatNumber color="#5865F2">
                     {Math.round((stats.activeGuilds / stats.guildCount) * 100)}%
                   </StatNumber>
                 </Stat>
               </Box>
 
-              <Box bg="gray.700" border="1px" borderColor="gray.600" w="full" borderRadius="lg" p={6}>
+              <Box bg="#2f3136" border="1px" borderColor="#202225" w="full" borderRadius={0} p={6}>
                 <Stat>
-                  <StatLabel color="gray.400">
+                  <StatLabel color="#72767d">
                     <Flex align="center">
                       <Icon as={FaDiscord} mr={2} />
                       Active Features
                     </Flex>
                   </StatLabel>
-                  <StatNumber color="gold.400">2</StatNumber>
-                  <StatHelpText color="gray.400">Welcome & Leave</StatHelpText>
+                  <StatNumber color="#5865F2">2</StatNumber>
+                  <StatHelpText color="#72767d">Welcome & Leave</StatHelpText>
                 </Stat>
               </Box>
 
-              <Divider borderColor="gray.700" />
+              <Divider borderColor="#202225" />
 
-              <Text color="gray.500" fontSize="sm" textAlign="center">
+              <Text color="#72767d" fontSize="sm" textAlign="center">
                 Stats are simulated for preview
               </Text>
             </VStack>

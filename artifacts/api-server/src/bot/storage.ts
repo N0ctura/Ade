@@ -54,20 +54,54 @@ export interface ThresholdTier {
 }
 
 export const DEFAULT_THRESHOLD_TIERS: ThresholdTier[] = [
-  { name: "Semidio",       xpRequired: 6_000_000, roleIds: ["1218697126926749737","1218900052588630026","1218900180628279326","1218900125775302696"] },
-  { name: "Gigante/Ninfa", xpRequired: 2_000_000, roleIds: ["1218697050544148480","1218696998249562182","1218900685224153129","1218900357225386034","1218900822360985671","1218900471364845619","1218900756942426233","1218900418197979286"] },
-  { name: "Eroe",          xpRequired: 1_000_000, roleIds: ["1218696854276018380","1218899640729075803","1218899814914199562","1218899758236565627"] },
-  { name: "Polemarchos",   xpRequired: 700_000,   roleIds: ["1128736377664720896","1128819275931598938","1128732867447508992","1128813555416826017"] },
-  { name: "Combattente",   xpRequired: 500_000,   roleIds: ["1128735744995885116","1128819152119943239","1128732753651839046","1128813312654704742"] },
-  { name: "Misthios",      xpRequired: 350_000,   roleIds: ["1128735127439151154","1128819040006176840","1128732635947094191","1128812621144002580"] },
-  { name: "Profeta",       xpRequired: 250_000,   roleIds: ["1128734867971133491","1128818907696873593","1128732549011746967","1128812135821094932"] },
-  { name: "Oracolo",       xpRequired: 150_000,   roleIds: ["1128734659778465832","1128818676016087072","1128732407776936076","1128811906090676344"] },
-  { name: "Sacerdote",     xpRequired: 50_000,    roleIds: ["1128734192327471144","1128818545116065903","1128732279435436102","1128811659016810546"] },
+  { name: "Semidio", xpRequired: 6_000_000, roleIds: ["1218697126926749737", "1218900052588630026", "1218900180628279326", "1218900125775302696"] },
+  { name: "Gigante/Ninfa", xpRequired: 2_000_000, roleIds: ["1218697050544148480", "1218696998249562182", "1218900685224153129", "1218900357225386034", "1218900822360985671", "1218900471364845619", "1218900756942426233", "1218900418197979286"] },
+  { name: "Eroe", xpRequired: 1_000_000, roleIds: ["1218696854276018380", "1218899640729075803", "1218899814914199562", "1218899758236565627"] },
+  { name: "Polemarchos", xpRequired: 700_000, roleIds: ["1128736377664720896", "1128819275931598938", "1128732867447508992", "1128813555416826017"] },
+  { name: "Combattente", xpRequired: 500_000, roleIds: ["1128735744995885116", "1128819152119943239", "1128732753651839046", "1128813312654704742"] },
+  { name: "Misthios", xpRequired: 350_000, roleIds: ["1128735127439151154", "1128819040006176840", "1128732635947094191", "1128812621144002580"] },
+  { name: "Profeta", xpRequired: 250_000, roleIds: ["1128734867971133491", "1128818907696873593", "1128732549011746967", "1128812135821094932"] },
+  { name: "Oracolo", xpRequired: 150_000, roleIds: ["1128734659778465832", "1128818676016087072", "1128732407776936076", "1128811906090676344"] },
+  { name: "Sacerdote", xpRequired: 50_000, roleIds: ["1128734192327471144", "1128818545116065903", "1128732279435436102", "1128811659016810546"] },
 ];
 
 export const THRESHOLD_ROLE_ID_SET = new Set<string>(
   DEFAULT_THRESHOLD_TIERS.flatMap((t) => t.roleIds)
 );
+
+export interface GuildWelcomeLeaveConfig {
+  guildId: string;
+  guildName: string;
+  welcomeChannelId?: string;
+  welcomeMessage?: string;
+  welcomeEnabled?: boolean;
+  leaveChannelId?: string;
+  leaveMessage?: string;
+  leaveEnabled?: boolean;
+}
+
+export interface AutoResponseConfig {
+  id: string;
+  guildId: string;
+  trigger: string;
+  response: string;
+  isRegex: boolean;
+  enabled: boolean;
+  createdAt: string;
+}
+
+export interface ScheduledMessageConfig {
+  id: string;
+  guildId: string;
+  channelId: string;
+  message: string;
+  isRecurring: boolean;
+  recurrenceInterval?: 'daily' | 'weekly' | 'monthly';
+  scheduledTime: string; // ISO string per one-time, or cron-like for recurring
+  lastSent?: string;
+  enabled: boolean;
+  createdAt: string;
+}
 
 export interface BotConfig {
   pollChannelName: string | null;
@@ -80,6 +114,9 @@ export interface BotConfig {
   templeRoleNames?: string[];
   leaderRoleNames?: string[];
   thresholdRoleNames?: string[];
+  welcomeLeaveConfigs?: GuildWelcomeLeaveConfig[];
+  autoResponses?: AutoResponseConfig[];
+  scheduledMessages?: ScheduledMessageConfig[];
 }
 
 const DEFAULT_CONFIG: BotConfig = {
