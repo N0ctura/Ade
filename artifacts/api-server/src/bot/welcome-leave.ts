@@ -1,7 +1,8 @@
 // @ts-nocheck
-import { GuildMember } from "discord.js";
+import { GuildMember, AttachmentBuilder } from "discord.js";
 import { logger } from "../lib/logger.js";
 import { loadConfig } from "./storage.js";
+import { createCanvas, loadImage } from "@napi-rs/canvas";
 
 export function replaceVariables(message: string, member: GuildMember): string {
   return message
@@ -11,18 +12,63 @@ export function replaceVariables(message: string, member: GuildMember): string {
     .replace(/{memberCount}/g, member.guild.memberCount.toString());
 }
 
+async function convertToBlackAndWhite(imageUrl: string): Promise<Buffer> {
+  const response = await fetch(imageUrl);
+  const arrayBuffer = await response.arrayBuffer();
+  const buffer = Buffer.from(arrayBuffer);
+  
+  const img = await loadImage(buffer);
+  const canvas = createCanvas(img.width, img.height);
+  const ctx = canvas.getContext("2d");
+  
+  ctx.drawImage(img, 0, 0);
+  
+  const imageData = ctx.getImageData(0, 0, img.width, img.height);
+  const data = imageData.data;
+  
+  for (let i = 0; i < data.length; i += 4) {
+    const gray = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+    data[i] = gray;
+    data[i + 1] = gray;
+    data[i + 2] = gray;
+  }
+  
+  ctx.putImageData(imageData, 0, 0);
+  return canvas.toBuffer("image/png");
+}
+
 export async function handleMemberJoin(member: GuildMember): Promise<void> {
   const config = loadConfig();
   const guildConfig = config.welcomeLeaveConfigs?.find(c => c.guildId === member.guild.id);
-  if (!guildConfig?.welcomeEnabled || !guildConfig.welcomeChannelId || !guildConfig.welcomeMessage) return;
+  if (!guildConfig?.welcomeEnabled || !guildConfig.welcomeChannelId) return;
 
   try {
     const channel = await member.guild.channels.fetch(guildConfig.welcomeChannelId);
     if (!channel?.isTextBased()) return;
 
-    const message = replaceVariables(guildConfig.welcomeMessage, member);
-    await channel.send(message);
-    logger.info({ guildId: member.guild.id, userId: member.id }, "Welcome message sent");
+    const messageContent = guildConfig.welcomeMessage ? replaceVariables(guildConfig.welcomeMessage, member) : "";
+    
+    let files = [];
+    if (guildConfig.welcomeImageUrl) {
+      try {
+        const response = await fetch(guildConfig.welcomeImageUrl);
+        const arrayBuffer = await response.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
+        const attachment = new AttachmentBuilder(buffer, { name: "welcome.png" });
+        files.push(attachment);
+      } catch (err) {
+        logger.error({ err, guildId: member.guild.id }, "Error loading welcome image");
+      }
+    }
+    
+    const messagePayload: any = {};
+    if (messageContent) messagePayload.content = messageContent;
+    if (files.length > 0) messagePayload.files = files;
+    
+    if (Object.keys(messagePayload).length > 0) {
+      await channel.send(messagePayload);
+      logger.info({ guildId: member.guild.id, userId: member.id }, "Welcome message sent");
+    }
   } catch (err) {
     logger.error({ err, guildId: member.guild.id }, "Error sending welcome message");
   }
@@ -31,15 +77,33 @@ export async function handleMemberJoin(member: GuildMember): Promise<void> {
 export async function handleMemberLeave(member: GuildMember): Promise<void> {
   const config = loadConfig();
   const guildConfig = config.welcomeLeaveConfigs?.find(c => c.guildId === member.guild.id);
-  if (!guildConfig?.leaveEnabled || !guildConfig.leaveChannelId || !guildConfig.leaveMessage) return;
+  if (!guildConfig?.leaveEnabled || !guildConfig.leaveChannelId) return;
 
   try {
     const channel = await member.guild.channels.fetch(guildConfig.leaveChannelId);
     if (!channel?.isTextBased()) return;
 
-    const message = replaceVariables(guildConfig.leaveMessage, member);
-    await channel.send(message);
-    logger.info({ guildId: member.guild.id, userId: member.id }, "Leave message sent");
+    const messageContent = guildConfig.leaveMessage ? replaceVariables(guildConfig.leaveMessage, member) : "";
+    
+    let files = [];
+    if (guildConfig.welcomeImageUrl && guildConfig.leaveImageEnabled) {
+      try {
+        const bwBuffer = await convertToBlackAndWhite(guildConfig.welcomeImageUrl);
+        const attachment = new AttachmentBuilder(bwBuffer, { name: "leave.png" });
+        files.push(attachment);
+      } catch (err) {
+        logger.error({ err, guildId: member.guild.id }, "Error converting image to black and white");
+      }
+    }
+    
+    const messagePayload: any = {};
+    if (messageContent) messagePayload.content = messageContent;
+    if (files.length > 0) messagePayload.files = files;
+    
+    if (Object.keys(messagePayload).length > 0) {
+      await channel.send(messagePayload);
+      logger.info({ guildId: member.guild.id, userId: member.id }, "Leave message sent");
+    }
   } catch (err) {
     logger.error({ err, guildId: member.guild.id }, "Error sending leave message");
   }

@@ -28,6 +28,7 @@ import {
   StatHelpText,
   Badge,
   Icon,
+  Input,
 } from "@chakra-ui/react";
 import { motion } from "framer-motion";
 import {
@@ -87,9 +88,11 @@ export default function App() {
   const [welcomeChannel, setWelcomeChannel] = useState("");
   const [welcomeMessage, setWelcomeMessage] = useState("");
   const [welcomeEnabled, setWelcomeEnabled] = useState(true);
+  const [welcomeImageUrl, setWelcomeImageUrl] = useState("");
   const [leaveChannel, setLeaveChannel] = useState("");
   const [leaveMessage, setLeaveMessage] = useState("");
   const [leaveEnabled, setLeaveEnabled] = useState(true);
+  const [leaveImageEnabled, setLeaveImageEnabled] = useState(true);
 
   // Mock stats data
   const stats = {
@@ -142,8 +145,21 @@ export default function App() {
   }, [loadGuilds, loadConfigs]);
 
   useEffect(() => {
-    if (selectedGuild) loadChannels(selectedGuild, "both");
-  }, [selectedGuild, loadChannels]);
+    if (selectedGuild) {
+      loadChannels(selectedGuild, "both");
+      const existingConfig = configs.find(c => c.guildId === selectedGuild);
+      if (existingConfig) {
+        setWelcomeChannel(existingConfig.welcomeChannelId || "");
+        setWelcomeMessage(existingConfig.welcomeMessage || "");
+        setWelcomeEnabled(existingConfig.welcomeEnabled !== false);
+        setWelcomeImageUrl(existingConfig.welcomeImageUrl || "");
+        setLeaveChannel(existingConfig.leaveChannelId || "");
+        setLeaveMessage(existingConfig.leaveMessage || "");
+        setLeaveEnabled(existingConfig.leaveEnabled !== false);
+        setLeaveImageEnabled(existingConfig.leaveImageEnabled !== false);
+      }
+    }
+  }, [selectedGuild, loadChannels, configs]);
 
   const saveConfig = async () => {
     if (!selectedGuild) {
@@ -169,9 +185,11 @@ export default function App() {
           welcomeChannelId: welcomeChannel,
           welcomeMessage,
           welcomeEnabled,
+          welcomeImageUrl,
           leaveChannelId: leaveChannel,
           leaveMessage,
           leaveEnabled,
+          leaveImageEnabled,
         }),
       });
 
@@ -478,6 +496,23 @@ export default function App() {
                         />
                       </FormControl>
 
+                      <FormControl>
+                        <FormLabel fontWeight="bold" color="#ffffff">Image URL (optional)</FormLabel>
+                        <Input
+                          placeholder="https://example.com/image.png"
+                          value={welcomeImageUrl}
+                          onChange={(e) => setWelcomeImageUrl(e.target.value)}
+                          bg="#36393f"
+                          borderColor="#202225"
+                          borderRadius={0}
+                          color="#ffffff"
+                          _focus={{
+                            borderColor: "#5865F2",
+                            boxShadow: "0 0 0 1px #5865F2",
+                          }}
+                        />
+                      </FormControl>
+
                       <FormControl display="flex" alignItems="center">
                         <Checkbox
                           isChecked={welcomeEnabled}
@@ -539,6 +574,20 @@ export default function App() {
                             boxShadow: "0 0 0 1px #5865F2",
                           }}
                         />
+                      </FormControl>
+
+                      <FormControl display="flex" alignItems="center">
+                        <Checkbox
+                          isChecked={leaveImageEnabled}
+                          onChange={(e) => setLeaveImageEnabled(e.target.checked)}
+                          mr={3}
+                          colorScheme="blue"
+                          size="lg"
+                          isDisabled={!welcomeImageUrl}
+                        />
+                        <FormLabel mb={0} fontWeight="medium" color={welcomeImageUrl ? "#ffffff" : "#72767d"}>
+                          Enable Black & White Image for Leave (uses welcome image)
+                        </FormLabel>
                       </FormControl>
 
                       <FormControl display="flex" alignItems="center">

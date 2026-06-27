@@ -75,9 +75,11 @@ export interface GuildWelcomeLeaveConfig {
   welcomeChannelId?: string;
   welcomeMessage?: string;
   welcomeEnabled?: boolean;
+  welcomeImageUrl?: string;
   leaveChannelId?: string;
   leaveMessage?: string;
   leaveEnabled?: boolean;
+  leaveImageEnabled?: boolean;
 }
 
 export interface AutoResponseConfig {
