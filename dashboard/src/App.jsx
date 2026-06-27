@@ -47,6 +47,7 @@ import {
   FaServer,
   FaCog,
   FaDoorOpen,
+  FaMicrophone,
 } from "react-icons/fa";
 
 const BOT_API_URL = process.env.REACT_APP_BOT_API_URL || "https://ade-production-d78d.up.railway.app";
@@ -213,6 +214,14 @@ export default function App() {
   const [leaveCardTitle, setLeaveCardTitle] = useState("");
   const [leaveCardSubtitle, setLeaveCardSubtitle] = useState("");
 
+  // TTS form state
+  const [ttsSourceChannel, setTtsSourceChannel] = useState("");
+  const [ttsVoiceChannel, setTtsVoiceChannel] = useState("");
+  const [ttsEnabled, setTtsEnabled] = useState(false);
+  const [ttsLanguage, setTtsLanguage] = useState("it");
+  const [ttsPrefixes, setTtsPrefixes] = useState([".", ",", ";", "!"]);
+  const [voiceChannels, setVoiceChannels] = useState([]);
+
   // Mock stats data
   const stats = {
     guildCount: 12,
@@ -246,6 +255,84 @@ export default function App() {
     }
   }, []);
 
+  const loadVoiceChannels = useCallback(async (guildId) => {
+    try {
+      const res = await fetch(`${BOT_API_URL}/api/discord/guilds/${guildId}/voice-channels`);
+      if (!res.ok) throw new Error("Failed to load voice channels");
+      const data = await res.json();
+      setVoiceChannels(data);
+    } catch (err) {
+      console.error("Error loading voice channels:", err);
+    }
+  }, []);
+
+  const loadTtsConfig = useCallback(async (guildId) => {
+    try {
+      const res = await fetch(`${BOT_API_URL}/api/discord/tts-config/${guildId}`);
+      if (!res.ok) throw new Error("Failed to load TTS config");
+      const data = await res.json();
+      if (data) {
+        setTtsSourceChannel(data.ttsSourceChannelId || "");
+        setTtsVoiceChannel(data.ttsVoiceChannelId || "");
+        setTtsEnabled(data.ttsEnabled || false);
+        setTtsLanguage(data.ttsLanguage || "it");
+        setTtsPrefixes(data.ttsPrefixes || [".", ",", ";", "!"]);
+      }
+    } catch (err) {
+      console.error("Error loading TTS config:", err);
+    }
+  }, []);
+
+  const saveTtsConfig = useCallback(async () => {
+    if (!selectedGuild) {
+      toast({
+        title: "Errore",
+        description: "Seleziona un server",
+        status: "error",
+        duration: 3000,
+        isClosable: true,
+      });
+      return;
+    }
+
+    const guildName = guilds.find((g) => g.id === selectedGuild)?.name || "Unknown";
+
+    try {
+      const res = await fetch(`${BOT_API_URL}/api/discord/tts-config`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          guildId: selectedGuild,
+          guildName,
+          ttsSourceChannelId: ttsSourceChannel,
+          ttsVoiceChannelId: ttsVoiceChannel,
+          ttsEnabled,
+          ttsLanguage,
+          ttsPrefixes,
+        }),
+      });
+
+      if (res.ok) {
+        toast({
+          title: "Successo",
+          description: "Configurazione TTS salvata!",
+          status: "success",
+          duration: 3000,
+          isClosable: true,
+        });
+      }
+    } catch (err) {
+      console.error("Error saving TTS config:", err);
+      toast({
+        title: "Errore",
+        description: "Impossibile salvare la configurazione TTS",
+        status: "error",
+        duration: 3000,
+        isClosable: true,
+      });
+    }
+  }, [selectedGuild, guilds, ttsSourceChannel, ttsVoiceChannel, ttsEnabled, ttsLanguage, ttsPrefixes, toast]);
+
   const loadConfigs = useCallback(async () => {
     try {
       const res = await fetch(`${BOT_API_URL}/api/discord/config`);
@@ -266,6 +353,8 @@ export default function App() {
   useEffect(() => {
     if (selectedGuild) {
       loadChannels(selectedGuild, "both");
+      loadVoiceChannels(selectedGuild);
+      loadTtsConfig(selectedGuild);
       const existingConfig = configs.find(c => c.guildId === selectedGuild);
       if (existingConfig) {
         setWelcomeChannel(existingConfig.welcomeChannelId || "");
@@ -282,7 +371,7 @@ export default function App() {
         setLeaveCardSubtitle(existingConfig.leaveCardSubtitle || "");
       }
     }
-  }, [selectedGuild, loadChannels, configs]);
+  }, [selectedGuild, loadChannels, loadVoiceChannels, loadTtsConfig, configs]);
 
   const saveConfig = async () => {
     if (!selectedGuild) {
@@ -396,6 +485,12 @@ export default function App() {
             label="Messages"
             isActive={activeTab === "messages"}
             onClick={() => setActiveTab("messages")}
+          />
+          <SidebarItem
+            icon={FaMicrophone}
+            label="Voce"
+            isActive={activeTab === "voice"}
+            onClick={() => setActiveTab("voice")}
           />
           <SidebarItem
             icon={FaCog}
@@ -874,6 +969,174 @@ export default function App() {
                     <Text color="#72767d">Number of members</Text>
                   </Box>
                 </Grid>
+              </Box>
+            </VStack>
+          </MotionBox>
+        )}
+
+        {activeTab === "voice" && (
+          <MotionBox
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3 }}
+          >
+            <VStack spacing={8} align="stretch">
+              <Box>
+                <Heading size="2xl" mb={2} color="#ffffff">
+                  Impostazioni Voce
+                </Heading>
+                <Text color="#72767d">Configura il TTS per il tuo server</Text>
+              </Box>
+
+              <Box bg="#2f3136" p={8} borderRadius={0} border="1px" borderColor="#202225">
+                <VStack spacing={8} align="stretch">
+                  {/* Server Selection */}
+                  <FormControl>
+                    <FormLabel fontWeight="bold" color="#ffffff">Server</FormLabel>
+                    <Select
+                      placeholder="Select a server..."
+                      value={selectedGuild}
+                      onChange={(e) => setSelectedGuild(e.target.value)}
+                      bg="#36393f"
+                      borderColor="#202225"
+                      borderRadius={0}
+                      color="#ffffff"
+                      _focus={{
+                        borderColor: "#5865F2",
+                        boxShadow: "0 0 0 1px #5865F2",
+                      }}
+                    >
+                      {guilds.map((guild) => (
+                        <option key={guild.id} value={guild.id}>
+                          {guild.name}
+                        </option>
+                      ))}
+                    </Select>
+                  </FormControl>
+
+                  <Divider borderColor="#202225" />
+
+                  <Box>
+                    <Heading size="md" mb={4} color="#ffffff">
+                      Canali
+                    </Heading>
+                    <VStack spacing={6} align="stretch">
+                      <FormControl>
+                        <FormLabel fontWeight="bold" color="#ffffff">
+                          Canale testuale (dove leggere i messaggi)
+                        </FormLabel>
+                        <Select
+                          placeholder="Select a channel..."
+                          value={ttsSourceChannel}
+                          onChange={(e) => setTtsSourceChannel(e.target.value)}
+                          bg="#36393f"
+                          borderColor="#202225"
+                          borderRadius={0}
+                          color="#ffffff"
+                          isDisabled={!selectedGuild}
+                          _focus={{
+                            borderColor: "#5865F2",
+                            boxShadow: "0 0 0 1px #5865F2",
+                          }}
+                        >
+                          {(channels.both || []).map((channel) => (
+                            <option key={channel.id} value={channel.id}>
+                              #{channel.name}
+                            </option>
+                          ))}
+                        </Select>
+                      </FormControl>
+
+                      <FormControl>
+                        <FormLabel fontWeight="bold" color="#ffffff">
+                          Canale vocale (dove il bot entra)
+                        </FormLabel>
+                        <Select
+                          placeholder="Select a channel..."
+                          value={ttsVoiceChannel}
+                          onChange={(e) => setTtsVoiceChannel(e.target.value)}
+                          bg="#36393f"
+                          borderColor="#202225"
+                          borderRadius={0}
+                          color="#ffffff"
+                          isDisabled={!selectedGuild}
+                          _focus={{
+                            borderColor: "#5865F2",
+                            boxShadow: "0 0 0 1px #5865F2",
+                          }}
+                        >
+                          {voiceChannels.map((channel) => (
+                            <option key={channel.id} value={channel.id}>
+                              🔊 {channel.name}
+                            </option>
+                          ))}
+                        </Select>
+                      </FormControl>
+                    </VStack>
+                  </Box>
+
+                  <Divider borderColor="#202225" />
+
+                  <Box>
+                    <Heading size="md" mb={4} color="#ffffff">
+                      Prefissi
+                    </Heading>
+                    <VStack spacing={6} align="stretch">
+                      <Text color="#72767d" fontSize="sm">
+                        I prefissi che attivano il TTS (separati da virgola)
+                      </Text>
+                      <FormControl>
+                        <Input
+                          placeholder=". , , !"
+                          value={ttsPrefixes.join(", ")}
+                          onChange={(e) => {
+                            const prefixes = e.target.value
+                              .split(",")
+                              .map((p) => p.trim())
+                              .filter((p) => p.length > 0);
+                            setTtsPrefixes(prefixes);
+                          }}
+                          bg="#36393f"
+                          borderColor="#202225"
+                          borderRadius={0}
+                          color="#ffffff"
+                          _focus={{
+                            borderColor: "#5865F2",
+                            boxShadow: "0 0 0 1px #5865F2",
+                          }}
+                        />
+                      </FormControl>
+                    </VStack>
+                  </Box>
+
+                  <Divider borderColor="#202225" />
+
+                  <FormControl display="flex" alignItems="center">
+                    <Checkbox
+                      isChecked={ttsEnabled}
+                      onChange={(e) => setTtsEnabled(e.target.checked)}
+                      mr={3}
+                      colorScheme="blue"
+                      size="lg"
+                    />
+                    <FormLabel mb={0} fontWeight="medium" color="#ffffff">
+                      Abilita TTS automatico
+                    </FormLabel>
+                  </FormControl>
+
+                  <Button
+                    colorScheme="blue"
+                    onClick={saveTtsConfig}
+                    size="lg"
+                    borderRadius={0}
+                    bg="#5865F2"
+                    _hover={{
+                      bg: "#4752c4",
+                    }}
+                  >
+                    Salva Configurazione
+                  </Button>
+                </VStack>
               </Box>
             </VStack>
           </MotionBox>

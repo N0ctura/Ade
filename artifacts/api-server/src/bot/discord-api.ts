@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { Router, type Request, type Response } from "express";
 import { logger } from "../lib/logger.js";
-import { loadConfig, saveConfig, type GuildWelcomeLeaveConfig, type AutoResponseConfig, type ScheduledMessageConfig } from "./storage.js";
+import { loadConfig, saveConfig, type GuildWelcomeLeaveConfig, type AutoResponseConfig, type ScheduledMessageConfig, type GuildTTSConfig } from "./storage.js";
 
 let discordClient: any = null;
 
@@ -122,47 +122,47 @@ router.get("/config", (req: Request, res: Response) => {
  * Salva una configurazione welcome/leave
  */
 router.post("/config", (req: Request, res: Response) => {
-    try {
-      const { guildId, guildName, welcomeChannelId, welcomeMessage, welcomeEnabled, welcomeImageUrl, welcomeCardTitle, welcomeCardSubtitle, leaveChannelId, leaveMessage, leaveEnabled, leaveImageEnabled, leaveCardTitle, leaveCardSubtitle } = req.body;
+  try {
+    const { guildId, guildName, welcomeChannelId, welcomeMessage, welcomeEnabled, welcomeImageUrl, welcomeCardTitle, welcomeCardSubtitle, leaveChannelId, leaveMessage, leaveEnabled, leaveImageEnabled, leaveCardTitle, leaveCardSubtitle } = req.body;
 
-      if (!guildId || !guildName) {
-        return res.status(400).json({ error: "Guild ID and name are required" });
-      }
-
-      const config = loadConfig();
-      const welcomeLeaveConfigs = config.welcomeLeaveConfigs || [];
-
-      const existingIndex = welcomeLeaveConfigs.findIndex(c => c.guildId === guildId);
-      const newConfig: GuildWelcomeLeaveConfig = {
-        guildId,
-        guildName,
-        welcomeChannelId,
-        welcomeMessage,
-        welcomeEnabled,
-        welcomeImageUrl,
-        welcomeCardTitle,
-        welcomeCardSubtitle,
-        leaveChannelId,
-        leaveMessage,
-        leaveEnabled,
-        leaveImageEnabled,
-        leaveCardTitle,
-        leaveCardSubtitle,
-      };
-
-      if (existingIndex !== -1) {
-        welcomeLeaveConfigs[existingIndex] = newConfig;
-      } else {
-        welcomeLeaveConfigs.push(newConfig);
-      }
-
-      saveConfig({ ...config, welcomeLeaveConfigs });
-      res.json({ success: true, config: newConfig });
-    } catch (err) {
-      logger.error({ err }, "Error saving config");
-      res.status(500).json({ error: "Internal server error" });
+    if (!guildId || !guildName) {
+      return res.status(400).json({ error: "Guild ID and name are required" });
     }
-  });
+
+    const config = loadConfig();
+    const welcomeLeaveConfigs = config.welcomeLeaveConfigs || [];
+
+    const existingIndex = welcomeLeaveConfigs.findIndex(c => c.guildId === guildId);
+    const newConfig: GuildWelcomeLeaveConfig = {
+      guildId,
+      guildName,
+      welcomeChannelId,
+      welcomeMessage,
+      welcomeEnabled,
+      welcomeImageUrl,
+      welcomeCardTitle,
+      welcomeCardSubtitle,
+      leaveChannelId,
+      leaveMessage,
+      leaveEnabled,
+      leaveImageEnabled,
+      leaveCardTitle,
+      leaveCardSubtitle,
+    };
+
+    if (existingIndex !== -1) {
+      welcomeLeaveConfigs[existingIndex] = newConfig;
+    } else {
+      welcomeLeaveConfigs.push(newConfig);
+    }
+
+    saveConfig({ ...config, welcomeLeaveConfigs });
+    res.json({ success: true, config: newConfig });
+  } catch (err) {
+    logger.error({ err }, "Error saving config");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
 
 // ── AUTO RESPONSES ───────────────────────────────────────────────────────
 
@@ -322,6 +322,96 @@ router.delete("/scheduled-messages/:id", (req: Request, res: Response) => {
     res.json({ success: true });
   } catch (err) {
     logger.error({ err }, "Error deleting scheduled message");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── TTS ─────────────────────────────────────────────────────────────────────
+
+/**
+ * GET /api/discord/guilds/:guildId/voice-channels
+ * Ritorna lista di canali vocali per un server specifico
+ */
+router.get("/guilds/:guildId/voice-channels", (req: Request, res: Response) => {
+  if (!discordClient) {
+    return res.status(503).json({ error: "Discord client not initialized" });
+  }
+
+  try {
+    const { guildId } = req.params;
+    const guild = discordClient.guilds.cache.get(guildId);
+
+    if (!guild) {
+      return res.status(404).json({ error: "Guild not found" });
+    }
+
+    const voiceChannels = guild.channels.cache
+      .filter((channel: any) => channel.isVoiceBased())
+      .map((channel: any) => ({
+        id: channel.id,
+        name: channel.name,
+        type: channel.type,
+      }));
+
+    res.json(voiceChannels);
+  } catch (err) {
+    logger.error({ err }, "Error fetching voice channels");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+/**
+ * GET /api/discord/tts-config/:guildId
+ * Ottieni la configurazione TTS per un server
+ */
+router.get("/tts-config/:guildId", (req: Request, res: Response) => {
+  try {
+    const { guildId } = req.params;
+    const config = loadConfig();
+    const ttsConfig = config.ttsConfigs?.find((c: GuildTTSConfig) => c.guildId === guildId);
+    res.json(ttsConfig || null);
+  } catch (err) {
+    logger.error({ err }, "Error fetching TTS config");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+/**
+ * POST /api/discord/tts-config
+ * Salva la configurazione TTS per un server
+ */
+router.post("/tts-config", (req: Request, res: Response) => {
+  try {
+    const { guildId, guildName, ttsSourceChannelId, ttsVoiceChannelId, ttsEnabled, ttsLanguage, ttsPrefixes } = req.body;
+
+    if (!guildId || !guildName) {
+      return res.status(400).json({ error: "Guild ID and name are required" });
+    }
+
+    const config = loadConfig();
+    const ttsConfigs = config.ttsConfigs || [];
+
+    const existingIndex = ttsConfigs.findIndex((c: GuildTTSConfig) => c.guildId === guildId);
+    const newConfig: GuildTTSConfig = {
+      guildId,
+      guildName,
+      ttsSourceChannelId,
+      ttsVoiceChannelId,
+      ttsEnabled,
+      ttsLanguage: ttsLanguage || "it",
+      ttsPrefixes,
+    };
+
+    if (existingIndex !== -1) {
+      ttsConfigs[existingIndex] = newConfig;
+    } else {
+      ttsConfigs.push(newConfig);
+    }
+
+    saveConfig({ ...config, ttsConfigs });
+    res.json({ success: true, config: newConfig });
+  } catch (err) {
+    logger.error({ err }, "Error saving TTS config");
     res.status(500).json({ error: "Internal server error" });
   }
 });

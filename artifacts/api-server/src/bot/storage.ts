@@ -86,6 +86,16 @@ export interface GuildWelcomeLeaveConfig {
   leaveCardSubtitle?: string;
 }
 
+export interface GuildTTSConfig {
+  guildId: string;
+  guildName: string;
+  ttsSourceChannelId?: string; // Canale testuale da monitorare
+  ttsVoiceChannelId?: string; // Canale vocale dove il bot deve entrare
+  ttsEnabled?: boolean;
+  ttsLanguage?: string; // Default: 'it'
+  ttsPrefixes?: string[]; // Prefissi che attivano il TTS (es: [".", ",", ";", "!"])
+}
+
 export interface AutoResponseConfig {
   id: string;
   guildId: string;
@@ -123,6 +133,7 @@ export interface BotConfig {
   welcomeLeaveConfigs?: GuildWelcomeLeaveConfig[];
   autoResponses?: AutoResponseConfig[];
   scheduledMessages?: ScheduledMessageConfig[];
+  ttsConfigs?: GuildTTSConfig[];
 }
 
 const DEFAULT_CONFIG: BotConfig = {

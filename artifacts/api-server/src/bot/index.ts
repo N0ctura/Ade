@@ -24,6 +24,7 @@ import { fetchPlayerByUsername, fetchClanById } from "./wolvesville.js";
 import { generateProfileCard } from "./profile-card.js";
 import { handleMemberJoin, handleMemberLeave } from "./welcome-leave.js";
 import { setDiscordClient } from "./discord-api.js";
+import { handleMessageForTTS } from "./tts.js";
 
 type BotCommand = typeof sondaggioCommand | typeof impostazioniCommand | typeof debugTempliCommand | typeof fineCommand;
 
@@ -261,6 +262,16 @@ export async function startBot(): Promise<void> {
     if (message.author.bot) return;
     const content = message.content.trim();
     const guildId = message.guild?.id;
+
+    // TTS
+    if (guildId && message.member) {
+      await handleMessageForTTS({
+        guildId,
+        channelId: message.channel.id,
+        content,
+        member: message.member as GuildMember,
+      });
+    }
 
     // Auto responses
     if (guildId) {
