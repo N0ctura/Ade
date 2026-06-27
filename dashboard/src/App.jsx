@@ -13,6 +13,7 @@ import {
   Checkbox,
   Spinner,
   Grid,
+  GridItem,
   useToast,
   Drawer,
   DrawerOverlay,
@@ -29,6 +30,11 @@ import {
   Badge,
   Icon,
   Input,
+  Tab,
+  TabList,
+  TabPanel,
+  TabPanels,
+  Tabs,
 } from "@chakra-ui/react";
 import { motion } from "framer-motion";
 import {
@@ -73,6 +79,115 @@ const SidebarItem = ({ icon, label, isActive, onClick }) => (
     <Text>{label}</Text>
   </MotionFlex>
 );
+
+const CardPreview = ({
+  isLeave = false,
+  imageUrl,
+  title,
+  subtitle,
+  memberCount = 123
+}) => {
+  // Mock data for preview
+  const mockUsername = "TestUser";
+  const mockAvatar = "https://cdn.discordapp.com/embed/avatars/0.png";
+
+  // Replace variables in text
+  const replaceVars = (text) => {
+    return (text || (isLeave ? `Arrivederci ${mockUsername}!` : `Benvenuto ${mockUsername}!`))
+      .replace(/{user}/g, `<@123456789>`)
+      .replace(/{username}/g, mockUsername)
+      .replace(/{guild}/g, "Test Server")
+      .replace(/{memberCount}/g, memberCount);
+  };
+
+  // Background style
+  const getBackgroundStyle = () => {
+    if (imageUrl) {
+      return {
+        backgroundImage: `url(${imageUrl})`,
+        backgroundSize: "cover",
+        backgroundPosition: "center",
+      };
+    }
+    return {
+      background: isLeave
+        ? "linear-gradient(135deg, #2c2f33 0%, #23272a 100%)"
+        : "linear-gradient(135deg, #5865F2 0%, #57F287 100%)",
+    };
+  };
+
+  return (
+    <Box
+      w="800px"
+      h="400px"
+      borderRadius="lg"
+      overflow="hidden"
+      position="relative"
+      boxShadow="xl"
+      style={getBackgroundStyle()}
+    >
+      {/* Overlay */}
+      <Box
+        position="absolute"
+        top={0}
+        left={0}
+        right={0}
+        bottom={0}
+        bg="rgba(0,0,0,0.5)"
+      />
+
+      {/* Content */}
+      <Flex
+        position="relative"
+        zIndex={1}
+        direction="column"
+        align="center"
+        justify="center"
+        h="100%"
+        color="white"
+      >
+        {/* Avatar */}
+        <Box
+          w="160px"
+          h="160px"
+          borderRadius="50%"
+          border="4px solid white"
+          overflow="hidden"
+          mb="30px"
+          style={isLeave ? { filter: "grayscale(100%)" } : {}}
+        >
+          <Image
+            src={mockAvatar}
+            alt="avatar"
+            w="100%"
+            h="100%"
+            objectFit="cover"
+          />
+        </Box>
+
+        {/* Title */}
+        <Text
+          fontSize="36px"
+          fontWeight="bold"
+          mb="10px"
+          textAlign="center"
+          textShadow="0 2px 4px rgba(0,0,0,0.5)"
+        >
+          {replaceVars(title)}
+        </Text>
+
+        {/* Subtitle */}
+        <Text
+          fontSize="24px"
+          textAlign="center"
+          textShadow="0 2px 4px rgba(0,0,0,0.5)"
+        >
+          {replaceVars(subtitle) || (isLeave ? "Ci mancherai!" : `Sei il ${memberCount}° membro!`)}
+        </Text>
+      </Flex>
+    </Box>
+  );
+};
 
 export default function App() {
   const [activeTab, setActiveTab] = useState("messages");
@@ -460,227 +575,266 @@ export default function App() {
 
                   <Divider borderColor="#202225" />
 
-                  {/* Welcome Section */}
-                  <Box>
-                    <Heading size="md" mb={4} color="#ffffff">
-                      Welcome Message
-                    </Heading>
-                    <VStack spacing={6} align="stretch">
-                      <FormControl>
-                        <FormLabel fontWeight="bold" color="#ffffff">Channel</FormLabel>
-                        <Select
-                          placeholder="Select a channel..."
-                          value={welcomeChannel}
-                          onChange={(e) => setWelcomeChannel(e.target.value)}
-                          bg="#36393f"
-                          borderColor="#202225"
-                          borderRadius={0}
-                          color="#ffffff"
-                          isDisabled={!selectedGuild}
-                          _focus={{
-                            borderColor: "#5865F2",
-                            boxShadow: "0 0 0 1px #5865F2",
-                          }}
-                        >
-                          {(channels.both || []).map((channel) => (
-                            <option key={channel.id} value={channel.id}>
-                              #{channel.name}
-                            </option>
-                          ))}
-                        </Select>
-                      </FormControl>
+                  {/* Two-column layout: Form + Preview */}
+                  <Grid templateColumns="1fr 1fr" gap={8}>
+                    {/* Form Column */}
+                    <GridItem>
+                      <Tabs colorScheme="blue" variant="enclosed">
+                        <TabList mb={4}>
+                          <Tab color="#ffffff" _selected={{ bg: "#5865F2", color: "#ffffff" }}>Welcome</Tab>
+                          <Tab color="#ffffff" _selected={{ bg: "#5865F2", color: "#ffffff" }}>Leave</Tab>
+                        </TabList>
 
-                      <FormControl>
-                        <FormLabel fontWeight="bold" color="#ffffff">Message</FormLabel>
-                        <Textarea
-                          placeholder="Use {user}, {username}, {guild}, {memberCount}"
-                          value={welcomeMessage}
-                          onChange={(e) => setWelcomeMessage(e.target.value)}
-                          bg="#36393f"
-                          borderColor="#202225"
-                          borderRadius={0}
-                          color="#ffffff"
-                          minH="120px"
-                          _focus={{
-                            borderColor: "#5865F2",
-                            boxShadow: "0 0 0 1px #5865F2",
-                          }}
-                        />
-                      </FormControl>
+                        <TabPanels>
+                          <TabPanel p={0}>
+                            <VStack spacing={6} align="stretch">
+                              <FormControl>
+                                <FormLabel fontWeight="bold" color="#ffffff">Channel</FormLabel>
+                                <Select
+                                  placeholder="Select a channel..."
+                                  value={welcomeChannel}
+                                  onChange={(e) => setWelcomeChannel(e.target.value)}
+                                  bg="#36393f"
+                                  borderColor="#202225"
+                                  borderRadius={0}
+                                  color="#ffffff"
+                                  isDisabled={!selectedGuild}
+                                  _focus={{
+                                    borderColor: "#5865F2",
+                                    boxShadow: "0 0 0 1px #5865F2",
+                                  }}
+                                >
+                                  {(channels.both || []).map((channel) => (
+                                    <option key={channel.id} value={channel.id}>
+                                      #{channel.name}
+                                    </option>
+                                  ))}
+                                </Select>
+                              </FormControl>
 
-                      <FormControl>
-                        <FormLabel fontWeight="bold" color="#ffffff">Background Image URL (optional)</FormLabel>
-                        <Input
-                          placeholder="https://example.com/background.png"
-                          value={welcomeImageUrl}
-                          onChange={(e) => setWelcomeImageUrl(e.target.value)}
-                          bg="#36393f"
-                          borderColor="#202225"
-                          borderRadius={0}
-                          color="#ffffff"
-                          _focus={{
-                            borderColor: "#5865F2",
-                            boxShadow: "0 0 0 1px #5865F2",
-                          }}
-                        />
-                      </FormControl>
+                              <FormControl>
+                                <FormLabel fontWeight="bold" color="#ffffff">Message</FormLabel>
+                                <Textarea
+                                  placeholder="Use {user}, {username}, {guild}, {memberCount}"
+                                  value={welcomeMessage}
+                                  onChange={(e) => setWelcomeMessage(e.target.value)}
+                                  bg="#36393f"
+                                  borderColor="#202225"
+                                  borderRadius={0}
+                                  color="#ffffff"
+                                  minH="120px"
+                                  _focus={{
+                                    borderColor: "#5865F2",
+                                    boxShadow: "0 0 0 1px #5865F2",
+                                  }}
+                                />
+                              </FormControl>
 
-                      <FormControl>
-                        <FormLabel fontWeight="bold" color="#ffffff">Welcome Card Title (optional)</FormLabel>
-                        <Input
-                          placeholder="Benvenuto {username}!"
-                          value={welcomeCardTitle}
-                          onChange={(e) => setWelcomeCardTitle(e.target.value)}
-                          bg="#36393f"
-                          borderColor="#202225"
-                          borderRadius={0}
-                          color="#ffffff"
-                          _focus={{
-                            borderColor: "#5865F2",
-                            boxShadow: "0 0 0 1px #5865F2",
-                          }}
-                        />
-                      </FormControl>
+                              <FormControl>
+                                <FormLabel fontWeight="bold" color="#ffffff">Background Image URL (optional)</FormLabel>
+                                <Input
+                                  placeholder="https://example.com/background.png"
+                                  value={welcomeImageUrl}
+                                  onChange={(e) => setWelcomeImageUrl(e.target.value)}
+                                  bg="#36393f"
+                                  borderColor="#202225"
+                                  borderRadius={0}
+                                  color="#ffffff"
+                                  _focus={{
+                                    borderColor: "#5865F2",
+                                    boxShadow: "0 0 0 1px #5865F2",
+                                  }}
+                                />
+                              </FormControl>
 
-                      <FormControl>
-                        <FormLabel fontWeight="bold" color="#ffffff">Welcome Card Subtitle (optional)</FormLabel>
-                        <Input
-                          placeholder="Sei il {memberCount}° membro di {guild}!"
-                          value={welcomeCardSubtitle}
-                          onChange={(e) => setWelcomeCardSubtitle(e.target.value)}
-                          bg="#36393f"
-                          borderColor="#202225"
-                          borderRadius={0}
-                          color="#ffffff"
-                          _focus={{
-                            borderColor: "#5865F2",
-                            boxShadow: "0 0 0 1px #5865F2",
-                          }}
-                        />
-                      </FormControl>
+                              <FormControl>
+                                <FormLabel fontWeight="bold" color="#ffffff">Card Title (optional)</FormLabel>
+                                <Input
+                                  placeholder="Benvenuto {username}!"
+                                  value={welcomeCardTitle}
+                                  onChange={(e) => setWelcomeCardTitle(e.target.value)}
+                                  bg="#36393f"
+                                  borderColor="#202225"
+                                  borderRadius={0}
+                                  color="#ffffff"
+                                  _focus={{
+                                    borderColor: "#5865F2",
+                                    boxShadow: "0 0 0 1px #5865F2",
+                                  }}
+                                />
+                              </FormControl>
 
-                      <FormControl display="flex" alignItems="center">
-                        <Checkbox
-                          isChecked={welcomeEnabled}
-                          onChange={(e) => setWelcomeEnabled(e.target.checked)}
-                          mr={3}
-                          colorScheme="blue"
-                          size="lg"
-                        />
-                        <FormLabel mb={0} fontWeight="medium" color="#ffffff">Enable Welcome Message</FormLabel>
-                      </FormControl>
-                    </VStack>
-                  </Box>
+                              <FormControl>
+                                <FormLabel fontWeight="bold" color="#ffffff">Card Subtitle (optional)</FormLabel>
+                                <Input
+                                  placeholder="Sei il {memberCount}° membro di {guild}!"
+                                  value={welcomeCardSubtitle}
+                                  onChange={(e) => setWelcomeCardSubtitle(e.target.value)}
+                                  bg="#36393f"
+                                  borderColor="#202225"
+                                  borderRadius={0}
+                                  color="#ffffff"
+                                  _focus={{
+                                    borderColor: "#5865F2",
+                                    boxShadow: "0 0 0 1px #5865F2",
+                                  }}
+                                />
+                              </FormControl>
 
-                  <Divider borderColor="#202225" />
+                              <FormControl display="flex" alignItems="center">
+                                <Checkbox
+                                  isChecked={welcomeEnabled}
+                                  onChange={(e) => setWelcomeEnabled(e.target.checked)}
+                                  mr={3}
+                                  colorScheme="blue"
+                                  size="lg"
+                                />
+                                <FormLabel mb={0} fontWeight="medium" color="#ffffff">Enable Welcome Message</FormLabel>
+                              </FormControl>
+                            </VStack>
+                          </TabPanel>
 
-                  {/* Leave Section */}
-                  <Box>
-                    <Heading size="md" mb={4} color="#ffffff">
-                      Leave Message
-                    </Heading>
-                    <VStack spacing={6} align="stretch">
-                      <FormControl>
-                        <FormLabel fontWeight="bold" color="#ffffff">Channel</FormLabel>
-                        <Select
-                          placeholder="Select a channel..."
-                          value={leaveChannel}
-                          onChange={(e) => setLeaveChannel(e.target.value)}
-                          bg="#36393f"
-                          borderColor="#202225"
-                          borderRadius={0}
-                          color="#ffffff"
-                          isDisabled={!selectedGuild}
-                          _focus={{
-                            borderColor: "#5865F2",
-                            boxShadow: "0 0 0 1px #5865F2",
-                          }}
-                        >
-                          {(channels.both || []).map((channel) => (
-                            <option key={channel.id} value={channel.id}>
-                              #{channel.name}
-                            </option>
-                          ))}
-                        </Select>
-                      </FormControl>
+                          <TabPanel p={0}>
+                            <VStack spacing={6} align="stretch">
+                              <FormControl>
+                                <FormLabel fontWeight="bold" color="#ffffff">Channel</FormLabel>
+                                <Select
+                                  placeholder="Select a channel..."
+                                  value={leaveChannel}
+                                  onChange={(e) => setLeaveChannel(e.target.value)}
+                                  bg="#36393f"
+                                  borderColor="#202225"
+                                  borderRadius={0}
+                                  color="#ffffff"
+                                  isDisabled={!selectedGuild}
+                                  _focus={{
+                                    borderColor: "#5865F2",
+                                    boxShadow: "0 0 0 1px #5865F2",
+                                  }}
+                                >
+                                  {(channels.both || []).map((channel) => (
+                                    <option key={channel.id} value={channel.id}>
+                                      #{channel.name}
+                                    </option>
+                                  ))}
+                                </Select>
+                              </FormControl>
 
-                      <FormControl>
-                        <FormLabel fontWeight="bold" color="#ffffff">Message</FormLabel>
-                        <Textarea
-                          placeholder="Use {user}, {username}, {guild}, {memberCount}"
-                          value={leaveMessage}
-                          onChange={(e) => setLeaveMessage(e.target.value)}
-                          bg="#36393f"
-                          borderColor="#202225"
-                          borderRadius={0}
-                          color="#ffffff"
-                          minH="120px"
-                          _focus={{
-                            borderColor: "#5865F2",
-                            boxShadow: "0 0 0 1px #5865F2",
-                          }}
-                        />
-                      </FormControl>
+                              <FormControl>
+                                <FormLabel fontWeight="bold" color="#ffffff">Message</FormLabel>
+                                <Textarea
+                                  placeholder="Use {user}, {username}, {guild}, {memberCount}"
+                                  value={leaveMessage}
+                                  onChange={(e) => setLeaveMessage(e.target.value)}
+                                  bg="#36393f"
+                                  borderColor="#202225"
+                                  borderRadius={0}
+                                  color="#ffffff"
+                                  minH="120px"
+                                  _focus={{
+                                    borderColor: "#5865F2",
+                                    boxShadow: "0 0 0 1px #5865F2",
+                                  }}
+                                />
+                              </FormControl>
 
-                      <FormControl>
-                        <FormLabel fontWeight="bold" color="#ffffff">Leave Card Title (optional)</FormLabel>
-                        <Input
-                          placeholder="Arrivederci {username}!"
-                          value={leaveCardTitle}
-                          onChange={(e) => setLeaveCardTitle(e.target.value)}
-                          bg="#36393f"
-                          borderColor="#202225"
-                          borderRadius={0}
-                          color="#ffffff"
-                          _focus={{
-                            borderColor: "#5865F2",
-                            boxShadow: "0 0 0 1px #5865F2",
-                          }}
-                        />
-                      </FormControl>
+                              <FormControl>
+                                <FormLabel fontWeight="bold" color="#ffffff">Card Title (optional)</FormLabel>
+                                <Input
+                                  placeholder="Arrivederci {username}!"
+                                  value={leaveCardTitle}
+                                  onChange={(e) => setLeaveCardTitle(e.target.value)}
+                                  bg="#36393f"
+                                  borderColor="#202225"
+                                  borderRadius={0}
+                                  color="#ffffff"
+                                  _focus={{
+                                    borderColor: "#5865F2",
+                                    boxShadow: "0 0 0 1px #5865F2",
+                                  }}
+                                />
+                              </FormControl>
 
-                      <FormControl>
-                        <FormLabel fontWeight="bold" color="#ffffff">Leave Card Subtitle (optional)</FormLabel>
-                        <Input
-                          placeholder="Ci mancherai!"
-                          value={leaveCardSubtitle}
-                          onChange={(e) => setLeaveCardSubtitle(e.target.value)}
-                          bg="#36393f"
-                          borderColor="#202225"
-                          borderRadius={0}
-                          color="#ffffff"
-                          _focus={{
-                            borderColor: "#5865F2",
-                            boxShadow: "0 0 0 1px #5865F2",
-                          }}
-                        />
-                      </FormControl>
+                              <FormControl>
+                                <FormLabel fontWeight="bold" color="#ffffff">Card Subtitle (optional)</FormLabel>
+                                <Input
+                                  placeholder="Ci mancherai!"
+                                  value={leaveCardSubtitle}
+                                  onChange={(e) => setLeaveCardSubtitle(e.target.value)}
+                                  bg="#36393f"
+                                  borderColor="#202225"
+                                  borderRadius={0}
+                                  color="#ffffff"
+                                  _focus={{
+                                    borderColor: "#5865F2",
+                                    boxShadow: "0 0 0 1px #5865F2",
+                                  }}
+                                />
+                              </FormControl>
 
-                      <FormControl display="flex" alignItems="center">
-                        <Checkbox
-                          isChecked={leaveImageEnabled}
-                          onChange={(e) => setLeaveImageEnabled(e.target.checked)}
-                          mr={3}
-                          colorScheme="blue"
-                          size="lg"
-                        />
-                        <FormLabel mb={0} fontWeight="medium" color="#ffffff">
-                          Enable Leave Card (Black & White)
-                        </FormLabel>
-                      </FormControl>
+                              <FormControl display="flex" alignItems="center">
+                                <Checkbox
+                                  isChecked={leaveImageEnabled}
+                                  onChange={(e) => setLeaveImageEnabled(e.target.checked)}
+                                  mr={3}
+                                  colorScheme="blue"
+                                  size="lg"
+                                />
+                                <FormLabel mb={0} fontWeight="medium" color="#ffffff">
+                                  Enable Leave Card (Black & White)
+                                </FormLabel>
+                              </FormControl>
 
-                      <FormControl display="flex" alignItems="center">
-                        <Checkbox
-                          isChecked={leaveEnabled}
-                          onChange={(e) => setLeaveEnabled(e.target.checked)}
-                          mr={3}
-                          colorScheme="blue"
-                          size="lg"
-                        />
-                        <FormLabel mb={0} fontWeight="medium" color="#ffffff">Enable Leave Message</FormLabel>
-                      </FormControl>
-                    </VStack>
-                  </Box>
+                              <FormControl display="flex" alignItems="center">
+                                <Checkbox
+                                  isChecked={leaveEnabled}
+                                  onChange={(e) => setLeaveEnabled(e.target.checked)}
+                                  mr={3}
+                                  colorScheme="blue"
+                                  size="lg"
+                                />
+                                <FormLabel mb={0} fontWeight="medium" color="#ffffff">Enable Leave Message</FormLabel>
+                              </FormControl>
+                            </VStack>
+                          </TabPanel>
+                        </TabPanels>
+                      </Tabs>
+                    </GridItem>
+
+                    {/* Preview Column */}
+                    <GridItem>
+                      <Box>
+                        <Heading size="md" mb={4} color="#ffffff">
+                          Live Preview
+                        </Heading>
+                        <Tabs colorScheme="blue" variant="enclosed">
+                          <TabList mb={4}>
+                            <Tab color="#ffffff" _selected={{ bg: "#5865F2", color: "#ffffff" }}>Welcome Card</Tab>
+                            <Tab color="#ffffff" _selected={{ bg: "#5865F2", color: "#ffffff" }}>Leave Card</Tab>
+                          </TabList>
+
+                          <TabPanels>
+                            <TabPanel p={0}>
+                              <CardPreview
+                                isLeave={false}
+                                imageUrl={welcomeImageUrl}
+                                title={welcomeCardTitle}
+                                subtitle={welcomeCardSubtitle}
+                              />
+                            </TabPanel>
+                            <TabPanel p={0}>
+                              <CardPreview
+                                isLeave={true}
+                                imageUrl={welcomeImageUrl}
+                                title={leaveCardTitle}
+                                subtitle={leaveCardSubtitle}
+                              />
+                            </TabPanel>
+                          </TabPanels>
+                        </Tabs>
+                      </Box>
+                    </GridItem>
+                  </Grid>
 
                   <Button
                     colorScheme="blue"
