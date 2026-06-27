@@ -220,7 +220,7 @@ export default function App() {
   const [ttsVoiceChannel, setTtsVoiceChannel] = useState("");
   const [ttsEnabled, setTtsEnabled] = useState(false);
   const [ttsLanguage, setTtsLanguage] = useState("it");
-  const [ttsPrefixes, setTtsPrefixes] = useState([".", ",", ";", "!"]);
+  const [ttsPrefixes, setTtsPrefixes] = useState([",", ";", "!"]);
   const [voiceChannels, setVoiceChannels] = useState([]);
 
   // Mock stats data
@@ -272,13 +272,11 @@ export default function App() {
       const res = await fetch(`${BOT_API_URL}/api/discord/tts-config/${guildId}`);
       if (!res.ok) throw new Error("Failed to load TTS config");
       const data = await res.json();
-      if (data) {
-        setTtsSourceChannel(data.ttsSourceChannelId || "");
-        setTtsVoiceChannel(data.ttsVoiceChannelId || "");
-        setTtsEnabled(data.ttsEnabled || false);
-        setTtsLanguage(data.ttsLanguage || "it");
-        setTtsPrefixes(data.ttsPrefixes || [".", ",", ";", "!"]);
-      }
+      setTtsSourceChannel(data.ttsSourceChannelId || "");
+      setTtsVoiceChannel(data.ttsVoiceChannelId || "");
+      setTtsEnabled(data.ttsEnabled ?? false);
+      setTtsLanguage(data.ttsLanguage || "it");
+      setTtsPrefixes(data.ttsPrefixes || [",", ";", "!"]);
     } catch (err) {
       console.error("Error loading TTS config:", err);
     }

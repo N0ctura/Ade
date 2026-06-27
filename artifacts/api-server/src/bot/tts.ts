@@ -35,15 +35,28 @@ function removeEmojis(str: string): string {
 async function textToMp3Stream(text: string, lang: string = "it"): Promise<Readable> {
   return new Promise((resolve, reject) => {
     try {
-      const gtts = new gTTS(text, lang);
+      // Creiamo un file temporaneo in memoria
       const chunks: Buffer[] = [];
-      gtts.on("data", (chunk: Buffer) => chunks.push(chunk));
-      gtts.on("end", () => {
-        resolve(Readable.from(Buffer.concat(chunks)));
+      const gtts = new gTTS(text, lang);
+      
+      gtts.on('data', (chunk) => {
+        chunks.push(chunk);
       });
-      gtts.on("error", reject);
-      gtts.save();
+      
+      gtts.on('end', () => {
+        const buffer = Buffer.concat(chunks);
+        const stream = Readable.from(buffer);
+        resolve(stream);
+      });
+      
+      gtts.on('error', (err) => {
+        logger.error({ err, text }, "Errore nella generazione audio TTS");
+        reject(err);
+      });
+      
+      gtts.save(); // Avvia la generazione
     } catch (err) {
+      logger.error({ err, text }, "Errore nella funzione textToMp3Stream");
       reject(err);
     }
   });
@@ -175,9 +188,18 @@ export function setTTSConfig(config: GuildTTSConfig): void {
 /**
  * Ottieni la configurazione TTS per una guild
  */
-export function getTTSConfig(guildId: string): GuildTTSConfig | undefined {
+export function getTTSConfig(guildId: string): GuildTTSConfig {
   const botConfig = loadConfig();
-  return botConfig.ttsConfigs?.find((c) => c.guildId === guildId);
+  const config = botConfig.ttsConfigs?.find((c) => c.guildId === guildId);
+  return {
+    guildId,
+    guildName: config?.guildName || "Unknown",
+    ttsSourceChannelId: config?.ttsSourceChannelId,
+    ttsVoiceChannelId: config?.ttsVoiceChannelId,
+    ttsEnabled: config?.ttsEnabled ?? false,
+    ttsLanguage: config?.ttsLanguage || "it",
+    ttsPrefixes: config?.ttsPrefixes || [",", ";", "!"],
+  };
 }
 
 /**

@@ -2,6 +2,7 @@
 import { Router, type Request, type Response } from "express";
 import { logger } from "../lib/logger.js";
 import { loadConfig, saveConfig, type GuildWelcomeLeaveConfig, type AutoResponseConfig, type ScheduledMessageConfig, type GuildTTSConfig } from "./storage.js";
+import { getTTSConfig } from "./tts.js";
 
 let discordClient: any = null;
 
@@ -367,9 +368,8 @@ router.get("/guilds/:guildId/voice-channels", (req: Request, res: Response) => {
 router.get("/tts-config/:guildId", (req: Request, res: Response) => {
   try {
     const { guildId } = req.params;
-    const config = loadConfig();
-    const ttsConfig = config.ttsConfigs?.find((c: GuildTTSConfig) => c.guildId === guildId);
-    res.json(ttsConfig || null);
+    const config = getTTSConfig(guildId);
+    res.json(config);
   } catch (err) {
     logger.error({ err }, "Error fetching TTS config");
     res.status(500).json({ error: "Internal server error" });
