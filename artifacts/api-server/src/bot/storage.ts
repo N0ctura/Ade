@@ -5,8 +5,11 @@ import { logger } from "../lib/logger.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-// DATA_DIR può essere sovrascritta da env var — utile per Railway Volume come fallback
-const DATA_DIR = process.env["DATA_DIR"] ?? join(__dirname, "../../data");
+// Priorità: DATA_DIR → RAILWAY_VOLUME_MOUNT_PATH (letto automaticamente) → path locale
+const DATA_DIR =
+  process.env["DATA_DIR"] ??
+  process.env["RAILWAY_VOLUME_MOUNT_PATH"] ??
+  join(__dirname, "../../data");
 const CONFIG_FILE = join(DATA_DIR, "bot-config.json");
 
 // ── Tipi ────────────────────────────────────────────────────────────────────
