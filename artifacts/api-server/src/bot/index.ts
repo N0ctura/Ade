@@ -10,6 +10,7 @@ import {
   type Interaction,
   type Message,
   type TextChannel,
+  type GuildMember,
 } from "discord.js";
 import { logger } from "../lib/logger.js";
 import * as sondaggioCommand from "./commands/sondaggio.js";
@@ -182,7 +183,7 @@ export async function startBot(): Promise<void> {
       }
     }
     try {
-      await handleMemberJoin(member);
+      await handleMemberJoin(member as GuildMember);
     } catch (err) {
       logger.error({ err }, "Error in guildMemberAdd");
     }
@@ -198,7 +199,7 @@ export async function startBot(): Promise<void> {
       }
     }
     try {
-      await handleMemberLeave(member);
+      await handleMemberLeave(member as GuildMember);
     } catch (err) {
       logger.error({ err }, "Error in guildMemberRemove");
     }
@@ -301,8 +302,8 @@ export async function startBot(): Promise<void> {
     if (!username) return;
 
     try {
-      // @ts-ignore - sendTyping exists on text channels
-      if (message.channel.isTextBased()) {
+      // Only send typing if it's a text-based channel in a guild
+      if (message.channel.isTextBased() && 'sendTyping' in message.channel) {
         await message.channel.sendTyping();
       }
       const player = await fetchPlayerByUsername(username);

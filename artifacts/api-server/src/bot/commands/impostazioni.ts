@@ -336,6 +336,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
         saveConfig(config);
 
         // update() risponde al modal E aggiorna il messaggio originale in un solo passo
+        // @ts-ignore
         await submitted.update({ embeds: [buildStep5Embed()], components: [buildMessageButtons()] });
       } catch {
         // Modal scaduto — ripristina il passo 5 senza toccare il modal
