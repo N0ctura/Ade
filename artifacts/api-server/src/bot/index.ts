@@ -179,13 +179,6 @@ export async function startBot(): Promise<void> {
       const wolfWins    = stats?.werewolfWinCount ?? 0;
       const winRate     = gamesPlayed > 0 ? ((totalWins / gamesPlayed) * 100).toFixed(1) : null;
 
-      // DEBUG: struttura avatar (una volta sola, poi rimuovere)
-      logger.info({
-        equippedAvatar: JSON.stringify(p.equippedAvatar).slice(0, 300),
-        avatarsType: Array.isArray(p.avatars) ? `array[${(p.avatars as unknown[]).length}]` : typeof p.avatars,
-        avatarsSample: JSON.stringify(p.avatars).slice(0, 200),
-      }, "DEBUG avatar struttura");
-
       // Clan name
       let clanName: string | undefined;
       if (player.clanId) {
@@ -193,16 +186,9 @@ export async function startBot(): Promise<void> {
         clanName = clan?.name;
       }
 
-      // Avatar URL — equippedAvatar can be object with imageUrl or array of items
+      // Avatar URL — equippedAvatar = { url: "https://cdn-avatars.wolvesville.com/...", width, height }
       const avatarRaw = p.equippedAvatar;
-      let avatarUrl: string | undefined;
-      if (avatarRaw?.imageUrl) {
-        avatarUrl = avatarRaw.imageUrl as string;
-      } else if (Array.isArray(avatarRaw) && (avatarRaw as any[]).length > 0) {
-        avatarUrl = (avatarRaw as any[])[0]?.imageUrl as string | undefined;
-      } else if (avatarRaw?.id) {
-        avatarUrl = `https://cdn.wolvesville.com/avatarItems/${avatarRaw.id as string}.png`;
-      }
+      const avatarUrl: string | undefined = avatarRaw?.url as string | undefined;
 
       // Profile icon thumbnail (profileIconId is a reliable CDN image)
       const profileIconUrl = p.profileIconId
