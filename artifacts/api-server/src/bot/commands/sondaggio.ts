@@ -5,6 +5,7 @@ import {
   ActionRowBuilder,
   StringSelectMenuBuilder,
   StringSelectMenuOptionBuilder,
+  EmbedBuilder,
   PermissionFlagsBits,
   type TextChannel,
   type Message,
@@ -13,6 +14,7 @@ import { join } from "node:path";
 import { loadConfig, saveConfig } from "../storage.js";
 import { fetchAvailableQuests, type WvQuest } from "../wolvesville.js";
 import { addNumberBadge } from "../image-badge.js";
+import { normalize } from "../normalize.js";
 
 export const data = new SlashCommandBuilder()
   .setName("sondaggio")
@@ -201,6 +203,13 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     schedulePollClose(interaction.client, closesAt);
   }
 
+  // Mappa normalizzato→role per trovare il ruolo tempio di ogni canale di notifica
+  const roleByNorm = new Map(
+    guild.roles.cache
+      .filter((r) => r.name !== "@everyone")
+      .map((r) => [normalize(r.name), r])
+  );
+
   const notifyResults: string[] = [];
   for (const channelName of config.notifyChannelNames) {
     if (channelName === config.pollChannelName) continue;
@@ -208,12 +217,25 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
       (c) => c.isTextBased() && !c.isThread() && c.name === channelName
     ) as TextChannel | undefined;
     if (!notifyChannel) { notifyResults.push(`⚠️ #${channelName}: non trovato`); continue; }
+
+    // Cerca il ruolo corrispondente al canale (es. #tempio-degli-abissi → ruolo Tempio-degli-Abissi)
+    const matchingRole = roleByNorm.get(normalize(channelName));
+    const roleMention = matchingRole ? `<@&${matchingRole.id}>` : undefined;
+    const allowedRoles = matchingRole ? [matchingRole.id] : [];
+
+    const embed = new EmbedBuilder()
+      .setTitle("🐺 Sono usciti i nuovi sondaggi missione!")
+      .setDescription(
+        `Vai in **#${config.pollChannelName}**, vota la missione che vuoi fare e comunicalo al clan! 💪`
+      )
+      .setColor(0x8b0000);
+
     await notifyChannel.send({
-      content:
-        `🐺 **Sono usciti i nuovi sondaggi missione!**\n` +
-        `Vai in **#${config.pollChannelName}**, vota la missione che vuoi fare e comunicalo al clan! 💪`,
+      content: roleMention,
+      embeds: [embed],
+      allowedMentions: { roles: allowedRoles },
     });
-    notifyResults.push(`✅ Notifica inviata in #${channelName}`);
+    notifyResults.push(`✅ #${channelName}${matchingRole ? ` (ping @${matchingRole.name})` : ""}`);
   }
 
   const replyLines = [
