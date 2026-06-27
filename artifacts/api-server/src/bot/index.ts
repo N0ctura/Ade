@@ -17,7 +17,7 @@ import * as fineCommand from "./commands/fine.js";
 import { BOT_CONFIG } from "./config.js";
 import { loadConfig, saveConfig, initStorage } from "./storage.js";
 import { schedulePollClose } from "./poll-timer.js";
-import { fetchPlayerByUsername } from "./wolvesville.js";
+import { fetchPlayerByUsername, fetchClanById, profileIconUrl, profileFrameUrl } from "./wolvesville.js";
 
 type BotCommand = typeof sondaggioCommand | typeof impostazioniCommand | typeof debugTempliCommand | typeof fineCommand;
 
@@ -147,15 +147,6 @@ export async function startBot(): Promise<void> {
     try {
       await message.channel.sendTyping();
       const player = await fetchPlayerByUsername(username);
-      const p = player as any;
-      logger.info({
-        keys: Object.keys(p),
-        gameStats: p.gameStats ?? p.stats ?? p.gameStat ?? null,
-        avatarItem: p.equippedAvatarItem ?? p.avatarItem ?? null,
-        profileIcon: p.equippedProfileIcon ?? p.profileIcon ?? null,
-        profileFrame: p.equippedProfileFrame ?? p.profileFrame ?? null,
-        clan: p.clan ?? p.clanName ?? null,
-      }, "DEBUG campi giocatore");
 
       if (!player) {
         await message.reply({ content: `❌ Nessun giocatore trovato con il nome **${username}**.` });
@@ -164,14 +155,26 @@ export async function startBot(): Promise<void> {
 
       const stats = player.gameStats;
 
-      // Winrate totale
-      const winRate =
-        stats?.gamesPlayed && stats.gamesPlayed > 0
-          ? (((stats.wins ?? 0) / stats.gamesPlayed) * 100).toFixed(1)
-          : null;
+      // Statistiche con nomi campi reali dell'API Wolvesville
+      const totalWins    = stats?.totalWinCount ?? 0;
+      const totalLosses  = stats?.totalLoseCount ?? 0;
+      const totalTies    = stats?.totalTieCount ?? 0;
+      const gamesPlayed  = totalWins + totalLosses + totalTies;
+      const villageWins  = stats?.villageWinCount ?? 0;
+      const wolfWins     = stats?.werewolfWinCount ?? 0;
+      const winRate      = gamesPlayed > 0 ? ((totalWins / gamesPlayed) * 100).toFixed(1) : null;
 
-      // Clan: l'API restituisce player.clan.name, non player.clanName
-      const clanName = player.clan?.name ?? player.clanName ?? null;
+      // Clan: recupera nome dalla API usando clanId
+      let clanName: string | null = null;
+      if (player.clanId) {
+        const clan = await fetchClanById(player.clanId);
+        clanName = clan?.name ?? null;
+      }
+
+      // URL immagini
+      const skinUrl    = player.equippedAvatar?.imageUrl ?? null;
+      const iconUrl    = profileIconUrl(player.profileIconId);
+      const frameUrl   = profileFrameUrl(player.profileIconBorderId);
 
       const embed = new EmbedBuilder()
         .setColor(0x8b0000)
@@ -184,14 +187,10 @@ export async function startBot(): Promise<void> {
       }
 
       // Icona profilo → in alto a destra (thumbnail)
-      if (player.equippedProfileIcon?.imageUrl) {
-        embed.setThumbnail(player.equippedProfileIcon.imageUrl);
-      }
+      if (iconUrl) embed.setThumbnail(iconUrl);
 
       // Skin equipaggiata → immagine grande in basso
-      if (player.equippedAvatarItem?.imageUrl) {
-        embed.setImage(player.equippedAvatarItem.imageUrl);
-      }
+      if (skinUrl) embed.setImage(skinUrl);
 
       // Campi principali
       embed.addFields(
@@ -200,31 +199,25 @@ export async function startBot(): Promise<void> {
       );
 
       // Cornice profilo
-      if (player.equippedProfileFrame?.imageUrl) {
+      if (frameUrl) {
         embed.addFields({
           name: "🖼️ Cornice",
-          value: `[Visualizza](${player.equippedProfileFrame.imageUrl})`,
+          value: `[Visualizza](${frameUrl})`,
           inline: true,
         });
       }
 
       // Statistiche
-      if (stats) {
-        const villageWins = stats.survivorWins ?? 0;
-        const wolfWins = stats.werewolfWins ?? 0;
-        const totalWins = stats.wins ?? (villageWins + wolfWins);
-
-        embed.addFields(
-          { name: "🎮 Partite giocate", value: `${stats.gamesPlayed ?? 0}`, inline: true },
-          {
-            name: "🏆 Vittorie totali",
-            value: `${totalWins}${winRate ? ` (${winRate}%)` : ""}`,
-            inline: true,
-          },
-          { name: "🐺 Vittorie lupo", value: `${wolfWins}`, inline: true },
-          { name: "🧑 Vittorie villaggio", value: `${villageWins}`, inline: true },
-        );
-      }
+      embed.addFields(
+        { name: "🎮 Partite giocate", value: `${gamesPlayed}`, inline: true },
+        {
+          name: "🏆 Vittorie totali",
+          value: `${totalWins}${winRate ? ` (${winRate}%)` : ""}`,
+          inline: true,
+        },
+        { name: "🐺 Vittorie lupo", value: `${wolfWins}`, inline: true },
+        { name: "🧑 Vittorie villaggio", value: `${villageWins}`, inline: true },
+      );
 
       embed.setFooter({ text: `ID: ${player.id}` });
 
@@ -238,8 +231,6 @@ export async function startBot(): Promise<void> {
 
   client.on("error", (err) => { logger.error({ err }, "Errore client Discord"); });
 
-  // Carica config da PostgreSQL prima di connettersi a Discord
   await initStorage();
-
   await client.login(token);
 }
