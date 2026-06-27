@@ -1,9 +1,8 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   Box,
   Container,
   VStack,
-  HStack,
   Heading,
   Text,
   Button,
@@ -12,14 +11,10 @@ import {
   FormControl,
   FormLabel,
   Checkbox,
-  Alert,
-  AlertIcon,
   Spinner,
   Grid,
-  GridItem,
   useToast,
 } from "@chakra-ui/react";
-import { WarningIcon } from "@chakra-ui/icons";
 
 const BOT_API_URL = process.env.REACT_APP_BOT_API_URL || "http://localhost:3000";
 
@@ -42,22 +37,7 @@ export default function App() {
   const [leaveMessage, setLeaveMessage] = useState("");
   const [leaveEnabled, setLeaveEnabled] = useState(true);
 
-  // Load guilds on mount
-  useEffect(() => {
-    loadGuilds();
-    loadConfigs();
-  }, []);
-
-  // Load channels when guild changes
-  useEffect(() => {
-    if (welcomeGuild) loadChannels(welcomeGuild, "welcome");
-  }, [welcomeGuild]);
-
-  useEffect(() => {
-    if (leaveGuild) loadChannels(leaveGuild, "leave");
-  }, [leaveGuild]);
-
-  const loadGuilds = async () => {
+  const loadGuilds = useCallback(async () => {
     try {
       setLoading(true);
       const res = await fetch(`${BOT_API_URL}/api/discord/guilds`);
@@ -76,9 +56,9 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
 
-  const loadChannels = async (guildId, type) => {
+  const loadChannels = useCallback(async (guildId, type) => {
     try {
       const res = await fetch(`${BOT_API_URL}/api/discord/guilds/${guildId}/channels`);
       if (!res.ok) throw new Error("Failed to load channels");
@@ -94,9 +74,9 @@ export default function App() {
         isClosable: true,
       });
     }
-  };
+  }, [toast]);
 
-  const loadConfigs = async () => {
+  const loadConfigs = useCallback(async () => {
     try {
       const res = await fetch("/api/configs");
       if (res.ok) {
@@ -106,7 +86,22 @@ export default function App() {
     } catch (err) {
       console.error("Error loading configs:", err);
     }
-  };
+  }, []);
+
+  // Load guilds on mount
+  useEffect(() => {
+    loadGuilds();
+    loadConfigs();
+  }, [loadGuilds, loadConfigs]);
+
+  // Load channels when guild changes
+  useEffect(() => {
+    if (welcomeGuild) loadChannels(welcomeGuild, "welcome");
+  }, [welcomeGuild, loadChannels]);
+
+  useEffect(() => {
+    if (leaveGuild) loadChannels(leaveGuild, "leave");
+  }, [leaveGuild, loadChannels]);
 
   const saveWelcome = async () => {
     if (!welcomeGuild || !welcomeChannel || !welcomeMessage) {
@@ -223,7 +218,7 @@ export default function App() {
           {/* Header */}
           <Box>
             <Heading size="2xl" mb={2}>
-              🤖 Ade Dashboard
+              🧩 Ade Dashboard
             </Heading>
             <Text color="gray.400">Manage your Discord bot settings</Text>
           </Box>
@@ -397,7 +392,7 @@ export default function App() {
           {/* Saved Configs */}
           <Box bg="gray.800" p={8} borderRadius="lg" borderLeft="4px" borderColor="yellow.500">
             <Heading size="md" mb={4} color="yellow.400">
-              📊 Saved Configurations
+              📋 Saved Configurations
             </Heading>
             {configs.length === 0 ? (
               <Text color="gray.400">No configurations saved yet</Text>
@@ -420,4 +415,3 @@ export default function App() {
     </Box>
   );
 }
-
