@@ -147,6 +147,7 @@ export async function startBot(): Promise<void> {
     try {
       await message.channel.sendTyping();
       const player = await fetchPlayerByUsername(username);
+      logger.info({ playerRaw: JSON.stringify(player) }, "DEBUG risposta API player");
 
       if (!player) {
         await message.reply({ content: `❌ Nessun giocatore trovato con il nome **${username}**.` });
