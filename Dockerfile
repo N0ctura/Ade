@@ -19,6 +19,9 @@ RUN pnpm install --no-frozen-lockfile
 # Build the api-server bundle
 RUN pnpm --filter @workspace/api-server run build
 
+# Build the React dashboard
+RUN cd dashboard && npm run build
+
 ENV NODE_ENV=production
 
 CMD ["node", "--enable-source-maps", "./artifacts/api-server/dist/index.mjs"]
