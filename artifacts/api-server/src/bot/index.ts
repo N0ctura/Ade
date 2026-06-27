@@ -5,7 +5,7 @@ import {
   REST,
   Routes,
   Collection,
-  EmbedBuilder,
+  AttachmentBuilder,
   type Interaction,
   type Message,
 } from "discord.js";
@@ -17,7 +17,8 @@ import * as fineCommand from "./commands/fine.js";
 import { BOT_CONFIG } from "./config.js";
 import { loadConfig, saveConfig, initStorage } from "./storage.js";
 import { schedulePollClose } from "./poll-timer.js";
-import { fetchPlayerByUsername, fetchClanById, profileIconUrl, profileFrameUrl } from "./wolvesville.js";
+import { fetchPlayerByUsername, fetchClanById } from "./wolvesville.js";
+import { generateProfileCard } from "./profile-card.js";
 
 type BotCommand = typeof sondaggioCommand | typeof impostazioniCommand | typeof debugTempliCommand | typeof fineCommand;
 
@@ -154,75 +155,46 @@ export async function startBot(): Promise<void> {
       }
 
       const stats = player.gameStats;
+      const totalWins   = stats?.totalWinCount ?? 0;
+      const totalLosses = stats?.totalLoseCount ?? 0;
+      const totalTies   = stats?.totalTieCount ?? 0;
+      const gamesPlayed = totalWins + totalLosses + totalTies;
+      const villageWins = stats?.villageWinCount ?? 0;
+      const wolfWins    = stats?.werewolfWinCount ?? 0;
+      const winRate     = gamesPlayed > 0 ? ((totalWins / gamesPlayed) * 100).toFixed(1) : null;
 
-      // Statistiche con nomi campi reali dell'API Wolvesville
-      const totalWins    = stats?.totalWinCount ?? 0;
-      const totalLosses  = stats?.totalLoseCount ?? 0;
-      const totalTies    = stats?.totalTieCount ?? 0;
-      const gamesPlayed  = totalWins + totalLosses + totalTies;
-      const villageWins  = stats?.villageWinCount ?? 0;
-      const wolfWins     = stats?.werewolfWinCount ?? 0;
-      const winRate      = gamesPlayed > 0 ? ((totalWins / gamesPlayed) * 100).toFixed(1) : null;
-
-      // Clan: recupera nome dalla API usando clanId
-      let clanName: string | null = null;
+      // Clan name
+      let clanName: string | undefined;
       if (player.clanId) {
         const clan = await fetchClanById(player.clanId);
-        clanName = clan?.name ?? null;
+        clanName = clan?.name;
       }
 
-      // URL immagini
-      const skinUrl    = player.equippedAvatar?.imageUrl ?? null;
-      const iconUrl    = profileIconUrl(player.profileIconId);
-      const frameUrl   = profileFrameUrl(player.profileIconBorderId);
+      // Avatar URL — equippedAvatar può essere un oggetto con imageUrl o avere un id CDN
+      const avatarRaw = (player as any).equippedAvatar;
+      const avatarUrl: string | undefined =
+        avatarRaw?.imageUrl ??
+        (avatarRaw?.id ? `https://cdn.wolvesville.com/avatarItems/${avatarRaw.id as string}.png` : undefined);
 
-      const embed = new EmbedBuilder()
-        .setColor(0x8b0000)
-        .setTitle(`🐺 ${player.username}`)
-        .setDescription(player.personalMessage ? `*"${player.personalMessage}"*` : null);
+      // Genera la card grafica
+      const cardBuffer = await generateProfileCard({
+        username: player.username,
+        level: player.level,
+        personalMessage: player.personalMessage,
+        clanName,
+        avatarUrl,
+        gamesPlayed,
+        totalWins,
+        villageWins,
+        wolfWins,
+        winRate,
+        rosesReceived: (player as any).receivedRosesCount,
+        rosesSent: (player as any).sentRosesCount,
+      });
 
-      // Titolo giocatore come author
-      if (player.playerTitle?.title) {
-        embed.setAuthor({ name: player.playerTitle.title });
-      }
-
-      // Icona profilo → in alto a destra (thumbnail)
-      if (iconUrl) embed.setThumbnail(iconUrl);
-
-      // Skin equipaggiata → immagine grande in basso
-      if (skinUrl) embed.setImage(skinUrl);
-
-      // Campi principali
-      embed.addFields(
-        { name: "⚔️ Livello", value: `${player.level}`, inline: true },
-        { name: "🏰 Clan", value: clanName ?? "Nessuno", inline: true },
-      );
-
-      // Cornice profilo
-      if (frameUrl) {
-        embed.addFields({
-          name: "🖼️ Cornice",
-          value: `[Visualizza](${frameUrl})`,
-          inline: true,
-        });
-      }
-
-      // Statistiche
-      embed.addFields(
-        { name: "🎮 Partite giocate", value: `${gamesPlayed}`, inline: true },
-        {
-          name: "🏆 Vittorie totali",
-          value: `${totalWins}${winRate ? ` (${winRate}%)` : ""}`,
-          inline: true,
-        },
-        { name: "🐺 Vittorie lupo", value: `${wolfWins}`, inline: true },
-        { name: "🧑 Vittorie villaggio", value: `${villageWins}`, inline: true },
-      );
-
-      embed.setFooter({ text: `ID: ${player.id}` });
-
-      await message.reply({ embeds: [embed] });
-      logger.info({ username: player.username }, "Scheda giocatore inviata");
+      const attachment = new AttachmentBuilder(cardBuffer, { name: `profilo_${player.username}.png` });
+      await message.reply({ files: [attachment] });
+      logger.info({ username: player.username, avatarUrl }, "Scheda giocatore inviata");
     } catch (err) {
       logger.error({ err, username }, "Errore ricerca giocatore");
       await message.reply({ content: "❌ Errore durante la ricerca del giocatore. Riprova più tardi." });
