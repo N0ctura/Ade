@@ -5,7 +5,9 @@ import {
   REST,
   Routes,
   Collection,
+  EmbedBuilder,
   type Interaction,
+  type Message,
 } from "discord.js";
 import { logger } from "../lib/logger.js";
 import * as sondaggioCommand from "./commands/sondaggio.js";
@@ -15,6 +17,7 @@ import * as fineCommand from "./commands/fine.js";
 import { BOT_CONFIG } from "./config.js";
 import { loadConfig, saveConfig, initStorage } from "./storage.js";
 import { schedulePollClose } from "./poll-timer.js";
+import { fetchPlayerByUsername } from "./wolvesville.js";
 
 type BotCommand = typeof sondaggioCommand | typeof impostazioniCommand | typeof debugTempliCommand | typeof fineCommand;
 
@@ -36,6 +39,7 @@ export async function startBot(): Promise<void> {
       GatewayIntentBits.Guilds,
       GatewayIntentBits.GuildMessages,
       GatewayIntentBits.GuildMembers,
+      GatewayIntentBits.MessageContent,
     ],
     partials: [Partials.Message, Partials.Channel, Partials.GuildMember],
   });
@@ -128,6 +132,77 @@ export async function startBot(): Promise<void> {
       const errorMsg = { content: "❌ Si è verificato un errore. Riprova più tardi.", ephemeral: true };
       if (interaction.replied || interaction.deferred) await interaction.followUp(errorMsg);
       else await interaction.reply(errorMsg);
+    }
+  });
+
+  client.on("messageCreate", async (message: Message) => {
+    if (message.author.bot) return;
+    const content = message.content.trim();
+    if (!content.startsWith(".") || content.length < 2) return;
+    // ignora comandi slash o altri bot prefix
+    if (content.startsWith("./") || content.startsWith("..")) return;
+
+    const username = content.slice(1).trim();
+    if (!username) return;
+
+    try {
+      await message.channel.sendTyping();
+      const player = await fetchPlayerByUsername(username);
+
+      if (!player) {
+        await message.reply({ content: `❌ Nessun giocatore trovato con il nome **${username}**.` });
+        return;
+      }
+
+      const stats = player.gameStats;
+      const winRate = stats?.gamesPlayed && stats.gamesPlayed > 0
+        ? ((( stats.wins ?? 0) / stats.gamesPlayed) * 100).toFixed(1)
+        : null;
+
+      const leagueEmoji = (league?: number) => {
+        if (league === undefined || league === null) return "";
+        const emojis = ["🪨", "🥉", "🥈", "🥇", "💎", "👑"];
+        return emojis[Math.min(league, emojis.length - 1)] ?? "";
+      };
+
+      const embed = new EmbedBuilder()
+        .setColor(0x8b0000)
+        .setTitle(`🐺 ${player.username}`)
+        .setDescription(player.personalMessage ? `*"${player.personalMessage}"*` : null);
+
+      if (player.playerTitle?.title) embed.setAuthor({ name: player.playerTitle.title });
+      if (player.equippedAvatarItem?.imageUrl) embed.setThumbnail(player.equippedAvatarItem.imageUrl);
+
+      embed.addFields(
+        { name: "⚔️ Livello", value: `${player.level}`, inline: true },
+        { name: "🏰 Clan", value: player.clanName ?? "Nessuno", inline: true },
+      );
+
+      if (stats) {
+        embed.addFields(
+          { name: "🎮 Partite giocate", value: `${stats.gamesPlayed ?? 0}`, inline: true },
+          { name: "🏆 Vittorie totali", value: `${stats.wins ?? 0}${winRate ? ` (${winRate}%)` : ""}`, inline: true },
+          { name: "🐺 Vittorie lupo", value: `${stats.werewolfWins ?? 0}`, inline: true },
+          { name: "🧑 Vittorie villaggio", value: `${stats.survivorWins ?? 0}`, inline: true },
+        );
+      }
+
+      if (player.rankedSeasonSkill !== undefined) {
+        const league = leagueEmoji(player.rankedSeasonHighestLeague);
+        embed.addFields({
+          name: `${league} Ranked`,
+          value: `Skill: **${player.rankedSeasonSkill}** | Best: **${player.rankedSeasonBestSkill ?? "—"}**`,
+          inline: false,
+        });
+      }
+
+      embed.setFooter({ text: `ID: ${player.id}` });
+
+      await message.reply({ embeds: [embed] });
+      logger.info({ username: player.username }, "Scheda giocatore inviata");
+    } catch (err) {
+      logger.error({ err, username }, "Errore ricerca giocatore");
+      await message.reply({ content: "❌ Errore durante la ricerca del giocatore. Riprova più tardi." });
     }
   });
 
