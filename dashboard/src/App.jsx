@@ -44,7 +44,7 @@ import {
   FaUsers,
   FaServer,
   FaCog,
-  FaHandWave,
+  FaDoorOpen,
 } from "react-icons/fa";
 
 const BOT_API_URL = process.env.REACT_APP_BOT_API_URL || "http://localhost:3000";
@@ -306,7 +306,7 @@ export default function App() {
             onClick={() => setActiveTab("home")}
           />
           <SidebarItem
-            icon={FaHandWave}
+            icon={FaDoorOpen}
             label="Welcome Message"
             isActive={activeTab === "welcome"}
             onClick={() => setActiveTab("welcome")}
@@ -422,7 +422,7 @@ export default function App() {
                 </Heading>
                 <Grid templateColumns={{ base: "1fr", md: "1fr 1fr" }} gap={4}>
                   <Button
-                    leftIcon={<FaHandWave />}
+                    leftIcon={<FaDoorOpen />}
                     colorScheme="green"
                     size="lg"
                     onClick={() => setActiveTab("welcome")}
