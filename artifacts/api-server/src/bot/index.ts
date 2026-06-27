@@ -139,7 +139,6 @@ export async function startBot(): Promise<void> {
     if (message.author.bot) return;
     const content = message.content.trim();
     if (!content.startsWith(".") || content.length < 2) return;
-    // ignora comandi slash o altri bot prefix
     if (content.startsWith("./") || content.startsWith("..")) return;
 
     const username = content.slice(1).trim();
@@ -155,45 +154,67 @@ export async function startBot(): Promise<void> {
       }
 
       const stats = player.gameStats;
-      const winRate = stats?.gamesPlayed && stats.gamesPlayed > 0
-        ? ((( stats.wins ?? 0) / stats.gamesPlayed) * 100).toFixed(1)
-        : null;
 
-      const leagueEmoji = (league?: number) => {
-        if (league === undefined || league === null) return "";
-        const emojis = ["🪨", "🥉", "🥈", "🥇", "💎", "👑"];
-        return emojis[Math.min(league, emojis.length - 1)] ?? "";
-      };
+      // Winrate totale
+      const winRate =
+        stats?.gamesPlayed && stats.gamesPlayed > 0
+          ? (((stats.wins ?? 0) / stats.gamesPlayed) * 100).toFixed(1)
+          : null;
+
+      // Clan: l'API restituisce player.clan.name, non player.clanName
+      const clanName = player.clan?.name ?? player.clanName ?? null;
 
       const embed = new EmbedBuilder()
         .setColor(0x8b0000)
         .setTitle(`🐺 ${player.username}`)
         .setDescription(player.personalMessage ? `*"${player.personalMessage}"*` : null);
 
-      if (player.playerTitle?.title) embed.setAuthor({ name: player.playerTitle.title });
-      if (player.equippedAvatarItem?.imageUrl) embed.setThumbnail(player.equippedAvatarItem.imageUrl);
-
-      embed.addFields(
-        { name: "⚔️ Livello", value: `${player.level}`, inline: true },
-        { name: "🏰 Clan", value: player.clanName ?? "Nessuno", inline: true },
-      );
-
-      if (stats) {
-        embed.addFields(
-          { name: "🎮 Partite giocate", value: `${stats.gamesPlayed ?? 0}`, inline: true },
-          { name: "🏆 Vittorie totali", value: `${stats.wins ?? 0}${winRate ? ` (${winRate}%)` : ""}`, inline: true },
-          { name: "🐺 Vittorie lupo", value: `${stats.werewolfWins ?? 0}`, inline: true },
-          { name: "🧑 Vittorie villaggio", value: `${stats.survivorWins ?? 0}`, inline: true },
-        );
+      // Titolo giocatore come author
+      if (player.playerTitle?.title) {
+        embed.setAuthor({ name: player.playerTitle.title });
       }
 
-      if (player.rankedSeasonSkill !== undefined) {
-        const league = leagueEmoji(player.rankedSeasonHighestLeague);
+      // Icona profilo → in alto a destra (thumbnail)
+      if (player.equippedProfileIcon?.imageUrl) {
+        embed.setThumbnail(player.equippedProfileIcon.imageUrl);
+      }
+
+      // Skin equipaggiata → immagine grande in basso
+      if (player.equippedAvatarItem?.imageUrl) {
+        embed.setImage(player.equippedAvatarItem.imageUrl);
+      }
+
+      // Campi principali
+      embed.addFields(
+        { name: "⚔️ Livello", value: `${player.level}`, inline: true },
+        { name: "🏰 Clan", value: clanName ?? "Nessuno", inline: true },
+      );
+
+      // Cornice profilo
+      if (player.equippedProfileFrame?.imageUrl) {
         embed.addFields({
-          name: `${league} Ranked`,
-          value: `Skill: **${player.rankedSeasonSkill}** | Best: **${player.rankedSeasonBestSkill ?? "—"}**`,
-          inline: false,
+          name: "🖼️ Cornice",
+          value: `[Visualizza](${player.equippedProfileFrame.imageUrl})`,
+          inline: true,
         });
+      }
+
+      // Statistiche
+      if (stats) {
+        const villageWins = stats.survivorWins ?? 0;
+        const wolfWins = stats.werewolfWins ?? 0;
+        const totalWins = stats.wins ?? (villageWins + wolfWins);
+
+        embed.addFields(
+          { name: "🎮 Partite giocate", value: `${stats.gamesPlayed ?? 0}`, inline: true },
+          {
+            name: "🏆 Vittorie totali",
+            value: `${totalWins}${winRate ? ` (${winRate}%)` : ""}`,
+            inline: true,
+          },
+          { name: "🐺 Vittorie lupo", value: `${wolfWins}`, inline: true },
+          { name: "🧑 Vittorie villaggio", value: `${villageWins}`, inline: true },
+        );
       }
 
       embed.setFooter({ text: `ID: ${player.id}` });
