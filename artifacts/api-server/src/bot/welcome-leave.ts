@@ -14,25 +14,40 @@ export function replaceVariables(message: string, member: GuildMember): string {
 
 async function createWelcomeCard(
   member: GuildMember,
-  backgroundUrl: string,
+  backgroundUrl: string | undefined,
   welcomeText: string,
   subtitleText: string
 ): Promise<Buffer> {
-  // Scarica l'immagine di sfondo
-  const bgResponse = await fetch(backgroundUrl);
-  const bgBuffer = Buffer.from(await bgResponse.arrayBuffer());
-  const background = await loadImage(bgBuffer);
-
   // Crea canvas
   const canvas = createCanvas(800, 400);
   const ctx = canvas.getContext("2d");
 
-  // Disegna sfondo
-  ctx.drawImage(background, 0, 0, canvas.width, canvas.height);
-
-  // Aggiungi overlay semi-trasparente
-  ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  // Disegna sfondo (default o immagine)
+  if (backgroundUrl) {
+    try {
+      const bgResponse = await fetch(backgroundUrl);
+      const bgBuffer = Buffer.from(await bgResponse.arrayBuffer());
+      const background = await loadImage(bgBuffer);
+      ctx.drawImage(background, 0, 0, canvas.width, canvas.height);
+      // Aggiungi overlay semi-trasparente
+      ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    } catch (err) {
+      // Gradient di default se l'immagine fallisce
+      const gradient = ctx.createLinearGradient(0, 0, 800, 400);
+      gradient.addColorStop(0, "#5865F2");
+      gradient.addColorStop(1, "#57F287");
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+  } else {
+    // Gradient di default
+    const gradient = ctx.createLinearGradient(0, 0, 800, 400);
+    gradient.addColorStop(0, "#5865F2");
+    gradient.addColorStop(1, "#57F287");
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
 
   // Disegna avatar
   const avatarUrl = member.user.displayAvatarURL({ extension: "png", size: 256 });
@@ -107,19 +122,17 @@ export async function handleMemberJoin(member: GuildMember): Promise<void> {
     const messageContent = guildConfig.welcomeMessage ? replaceVariables(guildConfig.welcomeMessage, member) : "";
 
     let files = [];
-    if (guildConfig.welcomeImageUrl) {
-      try {
-        const cardBuffer = await createWelcomeCard(
-          member,
-          guildConfig.welcomeImageUrl,
-          guildConfig.welcomeCardTitle,
-          guildConfig.welcomeCardSubtitle
-        );
-        const attachment = new AttachmentBuilder(cardBuffer, { name: "welcome-card.png" });
-        files.push(attachment);
-      } catch (err) {
-        logger.error({ err, guildId: member.guild.id }, "Error creating welcome card");
-      }
+    try {
+      const cardBuffer = await createWelcomeCard(
+        member,
+        guildConfig.welcomeImageUrl,
+        guildConfig.welcomeCardTitle,
+        guildConfig.welcomeCardSubtitle
+      );
+      const attachment = new AttachmentBuilder(cardBuffer, { name: "welcome-card.png" });
+      files.push(attachment);
+    } catch (err) {
+      logger.error({ err, guildId: member.guild.id }, "Error creating welcome card, falling back to simple message");
     }
 
     const messagePayload: any = {};
