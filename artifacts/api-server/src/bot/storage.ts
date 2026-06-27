@@ -170,9 +170,17 @@ function fileSave(config: BotConfig): void {
  * Popola la cache in memoria.
  */
 export async function initStorage(): Promise<void> {
-  // Crea la tabella se non esiste ancora — nessuna azione manuale richiesta
-  await dbEnsureTable();
+  // Log diagnostico — visibile nei Railway Logs per verificare il percorso usato
+  logger.info({
+    DATA_DIR,
+    CONFIG_FILE,
+    RAILWAY_VOLUME_MOUNT_PATH: process.env["RAILWAY_VOLUME_MOUNT_PATH"] ?? "(non impostato)",
+    DATA_DIR_ENV: process.env["DATA_DIR"] ?? "(non impostato)",
+    fileExists: existsSync(CONFIG_FILE),
+  }, "storage: percorso configurazione");
 
+  // Prova PostgreSQL (opzionale — funziona solo se DATABASE_URL è configurato)
+  await dbEnsureTable();
   const dbConfig = await dbLoad();
   if (dbConfig) {
     cache = dbConfig;
