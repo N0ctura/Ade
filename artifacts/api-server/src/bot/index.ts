@@ -6,6 +6,7 @@ import {
   Routes,
   Collection,
   AttachmentBuilder,
+  EmbedBuilder,
   type Interaction,
   type Message,
 } from "discord.js";
@@ -27,6 +28,27 @@ commands.set(sondaggioCommand.data.name, sondaggioCommand);
 commands.set(impostazioniCommand.data.name, impostazioniCommand);
 commands.set(debugTempliCommand.data.name, debugTempliCommand);
 commands.set(fineCommand.data.name, fineCommand);
+
+function timeAgo(dateStr: string | null | undefined): string {
+  if (!dateStr) return "Sconosciuto";
+  const ms = Date.now() - new Date(dateStr).getTime();
+  const sec = Math.floor(ms / 1000);
+  if (sec < 60) return `${sec} secondi fa`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min} minuti fa`;
+  const hours = Math.floor(min / 60);
+  if (hours < 24) return `${hours} ore fa`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days} giorni fa`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return `${months} mesi fa`;
+  return `${Math.floor(months / 12)} anni fa`;
+}
+
+function formatDate(dateStr: string | null | undefined): string {
+  if (!dateStr) return "Sconosciuta";
+  return new Date(dateStr).toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
 
 export async function startBot(): Promise<void> {
   const token = BOT_CONFIG.token;
@@ -73,14 +95,11 @@ export async function startBot(): Promise<void> {
 
     const config = loadConfig();
     if (config.activePoll?.closesAt) {
-      logger.info({ closesAt: config.activePoll.closesAt }, "Ripristino timer sondaggio dopo riavvio");
       schedulePollClose(client, config.activePoll.closesAt);
     }
   });
 
   client.on("interactionCreate", async (interaction: Interaction) => {
-
-    // ── Select menu: voto missione o rimescolo ──────────────
     if (interaction.isStringSelectMenu() && interaction.customId === "vote_mission") {
       const value = interaction.values[0] ?? "";
       const config = loadConfig();
@@ -99,7 +118,6 @@ export async function startBot(): Promise<void> {
         saveConfig(config);
         const verb = isChange ? "🔄 **Voto aggiornato!** Hai votato per il" : "🔀 **Voto registrato!** Hai votato per il";
         await interaction.reply({ content: `${verb} **Rimescolo**.`, ephemeral: true });
-        logger.info({ userId: interaction.user.id, vote: "rimescolo", isChange }, "Voto rimescolo");
         return;
       }
 
@@ -111,17 +129,14 @@ export async function startBot(): Promise<void> {
 
       poll.votes[interaction.user.id] = selectedIdx;
       saveConfig(config);
-
       const label = poll.questLabels[selectedIdx] ?? `Missione ${selectedIdx + 1}`;
       const msg = isChange
         ? `🔄 **Voto aggiornato!** Hai cambiato voto: **${label}**`
         : `✅ **Voto registrato!** Hai votato: **${label}**`;
       await interaction.reply({ content: msg, ephemeral: true });
-      logger.info({ userId: interaction.user.id, selectedIdx, label, isChange }, "Voto missione");
       return;
     }
 
-    // ── Slash commands ──────────────────────────────────────
     if (!interaction.isChatInputCommand()) return;
     const command = commands.get(interaction.commandName);
     if (!command) return;
@@ -154,6 +169,7 @@ export async function startBot(): Promise<void> {
         return;
       }
 
+      const p = player as any;
       const stats = player.gameStats;
       const totalWins   = stats?.totalWinCount ?? 0;
       const totalLosses = stats?.totalLoseCount ?? 0;
@@ -163,6 +179,13 @@ export async function startBot(): Promise<void> {
       const wolfWins    = stats?.werewolfWinCount ?? 0;
       const winRate     = gamesPlayed > 0 ? ((totalWins / gamesPlayed) * 100).toFixed(1) : null;
 
+      // DEBUG: struttura avatar (una volta sola, poi rimuovere)
+      logger.info({
+        equippedAvatar: JSON.stringify(p.equippedAvatar).slice(0, 300),
+        avatarsType: Array.isArray(p.avatars) ? `array[${(p.avatars as unknown[]).length}]` : typeof p.avatars,
+        avatarsSample: JSON.stringify(p.avatars).slice(0, 200),
+      }, "DEBUG avatar struttura");
+
       // Clan name
       let clanName: string | undefined;
       if (player.clanId) {
@@ -170,13 +193,23 @@ export async function startBot(): Promise<void> {
         clanName = clan?.name;
       }
 
-      // Avatar URL — equippedAvatar può essere un oggetto con imageUrl o avere un id CDN
-      const avatarRaw = (player as any).equippedAvatar;
-      const avatarUrl: string | undefined =
-        avatarRaw?.imageUrl ??
-        (avatarRaw?.id ? `https://cdn.wolvesville.com/avatarItems/${avatarRaw.id as string}.png` : undefined);
+      // Avatar URL — equippedAvatar can be object with imageUrl or array of items
+      const avatarRaw = p.equippedAvatar;
+      let avatarUrl: string | undefined;
+      if (avatarRaw?.imageUrl) {
+        avatarUrl = avatarRaw.imageUrl as string;
+      } else if (Array.isArray(avatarRaw) && (avatarRaw as any[]).length > 0) {
+        avatarUrl = (avatarRaw as any[])[0]?.imageUrl as string | undefined;
+      } else if (avatarRaw?.id) {
+        avatarUrl = `https://cdn.wolvesville.com/avatarItems/${avatarRaw.id as string}.png`;
+      }
 
-      // Genera la card grafica
+      // Profile icon thumbnail (profileIconId is a reliable CDN image)
+      const profileIconUrl = p.profileIconId
+        ? `https://cdn.wolvesville.com/profileIcons/${p.profileIconId as string}.png`
+        : undefined;
+
+      // ── Genera la card grafica ──────────────────────────────
       const cardBuffer = await generateProfileCard({
         username: player.username,
         level: player.level,
@@ -188,12 +221,33 @@ export async function startBot(): Promise<void> {
         villageWins,
         wolfWins,
         winRate,
-        rosesReceived: (player as any).receivedRosesCount,
-        rosesSent: (player as any).sentRosesCount,
+        rosesReceived: p.receivedRosesCount,
+        rosesSent: p.sentRosesCount,
       });
 
-      const attachment = new AttachmentBuilder(cardBuffer, { name: `profilo_${player.username}.png` });
-      await message.reply({ files: [attachment] });
+      const fileName = `profilo_${player.username}.png`;
+      const attachment = new AttachmentBuilder(cardBuffer, { name: fileName });
+
+      // ── Embed testuale sopra la card ────────────────────────
+      const embed = new EmbedBuilder()
+        .setColor(0x8b0000)
+        .setTitle(`🔎 ${player.username}`)
+        .setImage(`attachment://${fileName}`);
+
+      if (profileIconUrl) embed.setThumbnail(profileIconUrl);
+
+      if (player.personalMessage) {
+        embed.setDescription(`*"${player.personalMessage}"*`);
+      }
+
+      embed.addFields(
+        { name: "🆔 ID", value: `\`${player.id}\``, inline: false },
+        { name: "🏰 Clan",         value: clanName ?? "Nessuno",            inline: true },
+        { name: "🕐 Ultimo accesso", value: timeAgo(p.lastOnline),          inline: true },
+        { name: "📅 Creato",        value: formatDate(p.creationTime),      inline: true },
+      );
+
+      await message.reply({ embeds: [embed], files: [attachment] });
       logger.info({ username: player.username, avatarUrl }, "Scheda giocatore inviata");
     } catch (err) {
       logger.error({ err, username }, "Errore ricerca giocatore");
