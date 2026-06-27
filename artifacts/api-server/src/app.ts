@@ -41,7 +41,7 @@ const dashboardBuildPath = path.resolve(__dirname, "../../../dashboard/build");
 app.use(express.static(dashboardBuildPath));
 
 // For any routes that don't match API, send back the React index.html
-app.get("*", (req, res) => {
+app.get("/*", (req, res) => {
   res.sendFile(path.resolve(dashboardBuildPath, "index.html"));
 });
 
