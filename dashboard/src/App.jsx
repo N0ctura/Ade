@@ -3,7 +3,6 @@ import {
   Box,
   Flex,
   VStack,
-  HStack,
   Heading,
   Text,
   Button,
@@ -29,13 +28,11 @@ import {
   StatHelpText,
   Badge,
   Icon,
-  Link,
 } from "@chakra-ui/react";
 import { motion } from "framer-motion";
 import {
   FaHome,
   FaWaveSquare,
-  FaSignOutAlt,
   FaEye,
   FaDiscord,
   FaChartLine,
