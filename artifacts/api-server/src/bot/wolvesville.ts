@@ -39,6 +39,51 @@ export interface WvAvatarItem {
   name?: string;
 }
 
+export interface WvClan {
+  id: string;
+  name: string;
+  tag?: string;
+  description?: string;
+  memberCount?: number;
+  maxMemberCount?: number;
+  iconUrl?: string;
+}
+
+export interface WvPlayer {
+  id: string;
+  username: string;
+  level: number;
+  personalMessage?: string;
+  status?: string;
+  creationTime?: string;
+  lastOnline?: string;
+  rankedSeasonSkill?: number;
+  rankedSeasonMaxSkill?: number;
+  rankedSeasonBestRank?: number;
+  rankedSeasonPlayedCount?: number;
+  receivedRosesCount?: number;
+  sentRosesCount?: number;
+  profileIconId?: string;
+  profileIconBorderId?: string;
+  profileIconColor?: string;
+  profileIconColorMode?: string;
+  equippedAvatar?: { imageUrl?: string; id?: string } | null;
+  clanId?: string;
+  gameStats?: {
+    totalWinCount?: number;
+    totalLoseCount?: number;
+    totalTieCount?: number;
+    villageWinCount?: number;
+    villageLoseCount?: number;
+    werewolfWinCount?: number;
+    werewolfLoseCount?: number;
+    votingWinCount?: number;
+    soloWinCount?: number;
+    totalPlayTimeInMinutes?: number;
+  };
+  playerTitle?: { title?: string };
+}
+
 export async function fetchAvailableQuests(clanId: string): Promise<WvQuest[]> {
   const resp = await fetch(`${WV_BASE}/clans/${clanId}/quests/available`, {
     headers: headers(),
@@ -76,32 +121,6 @@ export async function fetchAvatarItems(): Promise<WvAvatarItem[]> {
   return resp.json() as Promise<WvAvatarItem[]>;
 }
 
-export interface WvPlayer {
-  id: string;
-  username: string;
-  level: number;
-  personalMessage?: string;
-  status?: string;
-  gameStats?: {
-    gamesPlayed?: number;
-    wins?: number;
-    survivorWins?: number;
-    werewolfWins?: number;
-    minigameWins?: number;
-  };
-  rankedSeasonSkill?: number;
-  rankedSeasonBestSkill?: number;
-  rankedSeasonHighestLeague?: number;
-  clan?: { id?: string; name?: string };
-  clanName?: string;
-  equippedAvatarItem?: { imageUrl?: string };
-  equippedProfileIcon?: { imageUrl?: string };
-  equippedProfileFrame?: { imageUrl?: string };
-  playerTitle?: { title?: string };
-  lastOnline?: string;
-  createdAt?: string;
-}
-
 export async function fetchPlayerByUsername(username: string): Promise<WvPlayer | null> {
   const resp = await fetch(`${WV_BASE}/players/search?username=${encodeURIComponent(username)}`, {
     headers: personalHeaders(),
@@ -112,6 +131,15 @@ export async function fetchPlayerByUsername(username: string): Promise<WvPlayer 
     throw new Error(`Wolvesville API error ${resp.status}: ${text}`);
   }
   return resp.json() as Promise<WvPlayer>;
+}
+
+export async function fetchClanById(clanId: string): Promise<WvClan | null> {
+  const resp = await fetch(`${WV_BASE}/clans/${clanId}`, {
+    headers: headers(),
+  });
+  if (resp.status === 404) return null;
+  if (!resp.ok) return null;
+  return resp.json() as Promise<WvClan>;
 }
 
 export async function shuffleQuests(clanId: string): Promise<void> {
@@ -126,4 +154,14 @@ export async function shuffleQuests(clanId: string): Promise<void> {
     const text = await resp.text();
     throw new Error(`Shuffle error ${resp.status}: ${text}`);
   }
+}
+
+export function profileIconUrl(iconId?: string): string | null {
+  if (!iconId) return null;
+  return `${CDN_BASE}/profileIcons/${iconId}.png`;
+}
+
+export function profileFrameUrl(borderId?: string): string | null {
+  if (!borderId) return null;
+  return `${CDN_BASE}/profileIconBorders/${borderId}.png`;
 }
