@@ -6,6 +6,7 @@ import {
   VoiceConnection,
   AudioPlayerStatus,
   NoSubscriberBehavior,
+  VoiceConnectionStatus,
 } from "@discordjs/voice";
 import { GuildMember, TextChannel, VoiceChannel, Client } from "discord.js";
 import { logger } from "../lib/logger.js";
@@ -38,22 +39,22 @@ async function textToMp3Stream(text: string, lang: string = "it"): Promise<Reada
       // Creiamo un file temporaneo in memoria
       const chunks: Buffer[] = [];
       const gtts = new gTTS(text, lang);
-      
+
       gtts.on('data', (chunk) => {
         chunks.push(chunk);
       });
-      
+
       gtts.on('end', () => {
         const buffer = Buffer.concat(chunks);
         const stream = Readable.from(buffer);
         resolve(stream);
       });
-      
+
       gtts.on('error', (err) => {
         logger.error({ err, text }, "Errore nella generazione audio TTS");
         reject(err);
       });
-      
+
       gtts.save(); // Avvia la generazione
     } catch (err) {
       logger.error({ err, text }, "Errore nella funzione textToMp3Stream");
@@ -83,6 +84,8 @@ export async function playText(
     return;
   }
 
+  logger.info({ guildId, channelId: voiceChannel.id, text }, "TTS: avvio riproduzione");
+
   // Ottieni o crea la connessione vocale
   let connection = connections.get(guildId);
   if (!connection) {
@@ -90,7 +93,15 @@ export async function playText(
       channelId: voiceChannel.id,
       guildId: guildId,
       adapterCreator: member.guild.voiceAdapterCreator,
+      selfDeaf: false, // Non silenziare il bot
+      selfMute: false, // Non mutare il bot
     });
+
+    // Attendi che la connessione sia pronta
+    connection.on(VoiceConnectionStatus.Ready, () => {
+      logger.info({ guildId }, "TTS: connessione vocale pronta");
+    });
+
     connections.set(guildId, connection);
     logger.info({ guildId, channelId: voiceChannel.id }, "TTS: connessione vocale creata");
   }
@@ -108,6 +119,7 @@ export async function playText(
 
     // Quando finisce la riproduzione, passa alla prossima in coda
     player.on(AudioPlayerStatus.Idle, async () => {
+      logger.info({ guildId }, "TTS: riproduzione terminata (idle)");
       isPlaying.set(guildId, false);
       const queue = queues.get(guildId) || [];
       if (queue.length > 0) {
@@ -115,6 +127,11 @@ export async function playText(
         queues.set(guildId, queue);
         await playFromQueue(guildId, nextText, lang);
       }
+    });
+
+    // Log errori player
+    player.on('error', error => {
+      logger.error({ error, guildId }, 'TTS: errore nel player audio');
     });
   }
 
@@ -137,11 +154,34 @@ async function playFromQueue(
 ): Promise<void> {
   try {
     isPlaying.set(guildId, true);
+    
+    // Genera l'audio
     const mp3Stream = await textToMp3Stream(text, lang);
-    const resource = createAudioResource(mp3Stream);
-    const player = players.get(guildId)!;
+    logger.debug({ guildId, text }, "TTS: stream audio generato");
+    
+    // Crea la risorsa audio
+    const resource = createAudioResource(mp3Stream, {
+      inlineVolume: true, // Permette di regolare il volume
+    });
+    
+    // Ottieni il player
+    const player = players.get(guildId);
+    if (!player) {
+      logger.error({ guildId }, "TTS: nessun player disponibile");
+      isPlaying.set(guildId, false);
+      return;
+    }
+    
+    // Riproduci
     player.play(resource);
+    
     logger.info({ guildId, text }, "TTS: riproduzione avviata");
+    
+    // Ascolta lo stato di playing
+    player.once(AudioPlayerStatus.Playing, () => {
+      logger.info({ guildId }, "TTS: player in stato PLAYING");
+    });
+    
   } catch (err) {
     logger.error({ err, guildId, text }, "TTS: errore durante la riproduzione");
     isPlaying.set(guildId, false);
