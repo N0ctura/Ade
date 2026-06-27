@@ -89,6 +89,8 @@ export default function App() {
   const [welcomeMessage, setWelcomeMessage] = useState("");
   const [welcomeEnabled, setWelcomeEnabled] = useState(true);
   const [welcomeImageUrl, setWelcomeImageUrl] = useState("");
+  const [welcomeCardTitle, setWelcomeCardTitle] = useState("");
+  const [welcomeCardSubtitle, setWelcomeCardSubtitle] = useState("");
   const [leaveChannel, setLeaveChannel] = useState("");
   const [leaveMessage, setLeaveMessage] = useState("");
   const [leaveEnabled, setLeaveEnabled] = useState(true);
@@ -153,6 +155,8 @@ export default function App() {
         setWelcomeMessage(existingConfig.welcomeMessage || "");
         setWelcomeEnabled(existingConfig.welcomeEnabled !== false);
         setWelcomeImageUrl(existingConfig.welcomeImageUrl || "");
+        setWelcomeCardTitle(existingConfig.welcomeCardTitle || "");
+        setWelcomeCardSubtitle(existingConfig.welcomeCardSubtitle || "");
         setLeaveChannel(existingConfig.leaveChannelId || "");
         setLeaveMessage(existingConfig.leaveMessage || "");
         setLeaveEnabled(existingConfig.leaveEnabled !== false);
@@ -186,6 +190,8 @@ export default function App() {
           welcomeMessage,
           welcomeEnabled,
           welcomeImageUrl,
+          welcomeCardTitle,
+          welcomeCardSubtitle,
           leaveChannelId: leaveChannel,
           leaveMessage,
           leaveEnabled,
@@ -497,11 +503,45 @@ export default function App() {
                       </FormControl>
 
                       <FormControl>
-                        <FormLabel fontWeight="bold" color="#ffffff">Image URL (optional)</FormLabel>
+                        <FormLabel fontWeight="bold" color="#ffffff">Background Image URL (optional)</FormLabel>
                         <Input
-                          placeholder="https://example.com/image.png"
+                          placeholder="https://example.com/background.png"
                           value={welcomeImageUrl}
                           onChange={(e) => setWelcomeImageUrl(e.target.value)}
+                          bg="#36393f"
+                          borderColor="#202225"
+                          borderRadius={0}
+                          color="#ffffff"
+                          _focus={{
+                            borderColor: "#5865F2",
+                            boxShadow: "0 0 0 1px #5865F2",
+                          }}
+                        />
+                      </FormControl>
+
+                      <FormControl>
+                        <FormLabel fontWeight="bold" color="#ffffff">Welcome Card Title (optional)</FormLabel>
+                        <Input
+                          placeholder="Benvenuto {username}!"
+                          value={welcomeCardTitle}
+                          onChange={(e) => setWelcomeCardTitle(e.target.value)}
+                          bg="#36393f"
+                          borderColor="#202225"
+                          borderRadius={0}
+                          color="#ffffff"
+                          _focus={{
+                            borderColor: "#5865F2",
+                            boxShadow: "0 0 0 1px #5865F2",
+                          }}
+                        />
+                      </FormControl>
+
+                      <FormControl>
+                        <FormLabel fontWeight="bold" color="#ffffff">Welcome Card Subtitle (optional)</FormLabel>
+                        <Input
+                          placeholder="Sei il {memberCount}° membro di {guild}!"
+                          value={welcomeCardSubtitle}
+                          onChange={(e) => setWelcomeCardSubtitle(e.target.value)}
                           bg="#36393f"
                           borderColor="#202225"
                           borderRadius={0}

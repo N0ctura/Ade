@@ -76,6 +76,8 @@ export interface GuildWelcomeLeaveConfig {
   welcomeMessage?: string;
   welcomeEnabled?: boolean;
   welcomeImageUrl?: string;
+  welcomeCardTitle?: string;
+  welcomeCardSubtitle?: string;
   leaveChannelId?: string;
   leaveMessage?: string;
   leaveEnabled?: boolean;
