@@ -9,6 +9,14 @@ function headers() {
   };
 }
 
+function personalHeaders() {
+  return {
+    Authorization: `${process.env["WOLVESVILLE_PERSONAL_API_KEY"] ?? ""}`,
+    "Content-Type": "application/json",
+    Accept: "application/json",
+  };
+}
+
 export interface WvQuest {
   id: string;
   promoImageUrl: string;
@@ -66,6 +74,42 @@ export async function fetchAvatarItems(): Promise<WvAvatarItem[]> {
   });
   if (!resp.ok) throw new Error(`Wolvesville API error ${resp.status}`);
   return resp.json() as Promise<WvAvatarItem[]>;
+}
+
+export interface WvPlayer {
+  id: string;
+  username: string;
+  level: number;
+  personalMessage?: string;
+  status?: string;
+  gameStats?: {
+    gamesPlayed?: number;
+    wins?: number;
+    survivorWins?: number;
+    werewolfWins?: number;
+    minigameWins?: number;
+  };
+  rankedSeasonSkill?: number;
+  rankedSeasonBestSkill?: number;
+  rankedSeasonHighestLeague?: number;
+  clanName?: string;
+  equippedAvatarItem?: { imageUrl?: string };
+  equippedProfileIcon?: { imageUrl?: string };
+  playerTitle?: { title?: string };
+  lastOnline?: string;
+  createdAt?: string;
+}
+
+export async function fetchPlayerByUsername(username: string): Promise<WvPlayer | null> {
+  const resp = await fetch(`${WV_BASE}/players/search?username=${encodeURIComponent(username)}`, {
+    headers: personalHeaders(),
+  });
+  if (resp.status === 404) return null;
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`Wolvesville API error ${resp.status}: ${text}`);
+  }
+  return resp.json() as Promise<WvPlayer>;
 }
 
 export async function shuffleQuests(clanId: string): Promise<void> {
