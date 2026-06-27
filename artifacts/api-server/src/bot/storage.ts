@@ -82,6 +82,8 @@ export interface GuildWelcomeLeaveConfig {
   leaveMessage?: string;
   leaveEnabled?: boolean;
   leaveImageEnabled?: boolean;
+  leaveCardTitle?: string;
+  leaveCardSubtitle?: string;
 }
 
 export interface AutoResponseConfig {

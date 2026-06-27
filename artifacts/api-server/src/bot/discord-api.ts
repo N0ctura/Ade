@@ -122,45 +122,47 @@ router.get("/config", (req: Request, res: Response) => {
  * Salva una configurazione welcome/leave
  */
 router.post("/config", (req: Request, res: Response) => {
-  try {
-    const { guildId, guildName, welcomeChannelId, welcomeMessage, welcomeEnabled, welcomeImageUrl, welcomeCardTitle, welcomeCardSubtitle, leaveChannelId, leaveMessage, leaveEnabled, leaveImageEnabled } = req.body;
+    try {
+      const { guildId, guildName, welcomeChannelId, welcomeMessage, welcomeEnabled, welcomeImageUrl, welcomeCardTitle, welcomeCardSubtitle, leaveChannelId, leaveMessage, leaveEnabled, leaveImageEnabled, leaveCardTitle, leaveCardSubtitle } = req.body;
 
-    if (!guildId || !guildName) {
-      return res.status(400).json({ error: "Guild ID and name are required" });
+      if (!guildId || !guildName) {
+        return res.status(400).json({ error: "Guild ID and name are required" });
+      }
+
+      const config = loadConfig();
+      const welcomeLeaveConfigs = config.welcomeLeaveConfigs || [];
+
+      const existingIndex = welcomeLeaveConfigs.findIndex(c => c.guildId === guildId);
+      const newConfig: GuildWelcomeLeaveConfig = {
+        guildId,
+        guildName,
+        welcomeChannelId,
+        welcomeMessage,
+        welcomeEnabled,
+        welcomeImageUrl,
+        welcomeCardTitle,
+        welcomeCardSubtitle,
+        leaveChannelId,
+        leaveMessage,
+        leaveEnabled,
+        leaveImageEnabled,
+        leaveCardTitle,
+        leaveCardSubtitle,
+      };
+
+      if (existingIndex !== -1) {
+        welcomeLeaveConfigs[existingIndex] = newConfig;
+      } else {
+        welcomeLeaveConfigs.push(newConfig);
+      }
+
+      saveConfig({ ...config, welcomeLeaveConfigs });
+      res.json({ success: true, config: newConfig });
+    } catch (err) {
+      logger.error({ err }, "Error saving config");
+      res.status(500).json({ error: "Internal server error" });
     }
-
-    const config = loadConfig();
-    const welcomeLeaveConfigs = config.welcomeLeaveConfigs || [];
-
-    const existingIndex = welcomeLeaveConfigs.findIndex(c => c.guildId === guildId);
-    const newConfig: GuildWelcomeLeaveConfig = {
-      guildId,
-      guildName,
-      welcomeChannelId,
-      welcomeMessage,
-      welcomeEnabled,
-      welcomeImageUrl,
-      welcomeCardTitle,
-      welcomeCardSubtitle,
-      leaveChannelId,
-      leaveMessage,
-      leaveEnabled,
-      leaveImageEnabled,
-    };
-
-    if (existingIndex !== -1) {
-      welcomeLeaveConfigs[existingIndex] = newConfig;
-    } else {
-      welcomeLeaveConfigs.push(newConfig);
-    }
-
-    saveConfig({ ...config, welcomeLeaveConfigs });
-    res.json({ success: true, config: newConfig });
-  } catch (err) {
-    logger.error({ err }, "Error saving config");
-    res.status(500).json({ error: "Internal server error" });
-  }
-});
+  });
 
 // ── AUTO RESPONSES ───────────────────────────────────────────────────────
 

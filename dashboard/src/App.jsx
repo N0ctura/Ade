@@ -95,6 +95,8 @@ export default function App() {
   const [leaveMessage, setLeaveMessage] = useState("");
   const [leaveEnabled, setLeaveEnabled] = useState(true);
   const [leaveImageEnabled, setLeaveImageEnabled] = useState(true);
+  const [leaveCardTitle, setLeaveCardTitle] = useState("");
+  const [leaveCardSubtitle, setLeaveCardSubtitle] = useState("");
 
   // Mock stats data
   const stats = {
@@ -161,6 +163,8 @@ export default function App() {
         setLeaveMessage(existingConfig.leaveMessage || "");
         setLeaveEnabled(existingConfig.leaveEnabled !== false);
         setLeaveImageEnabled(existingConfig.leaveImageEnabled !== false);
+        setLeaveCardTitle(existingConfig.leaveCardTitle || "");
+        setLeaveCardSubtitle(existingConfig.leaveCardSubtitle || "");
       }
     }
   }, [selectedGuild, loadChannels, configs]);
@@ -196,6 +200,8 @@ export default function App() {
           leaveMessage,
           leaveEnabled,
           leaveImageEnabled,
+          leaveCardTitle,
+          leaveCardSubtitle,
         }),
       });
 
@@ -616,6 +622,40 @@ export default function App() {
                         />
                       </FormControl>
 
+                      <FormControl>
+                        <FormLabel fontWeight="bold" color="#ffffff">Leave Card Title (optional)</FormLabel>
+                        <Input
+                          placeholder="Arrivederci {username}!"
+                          value={leaveCardTitle}
+                          onChange={(e) => setLeaveCardTitle(e.target.value)}
+                          bg="#36393f"
+                          borderColor="#202225"
+                          borderRadius={0}
+                          color="#ffffff"
+                          _focus={{
+                            borderColor: "#5865F2",
+                            boxShadow: "0 0 0 1px #5865F2",
+                          }}
+                        />
+                      </FormControl>
+
+                      <FormControl>
+                        <FormLabel fontWeight="bold" color="#ffffff">Leave Card Subtitle (optional)</FormLabel>
+                        <Input
+                          placeholder="Ci mancherai!"
+                          value={leaveCardSubtitle}
+                          onChange={(e) => setLeaveCardSubtitle(e.target.value)}
+                          bg="#36393f"
+                          borderColor="#202225"
+                          borderRadius={0}
+                          color="#ffffff"
+                          _focus={{
+                            borderColor: "#5865F2",
+                            boxShadow: "0 0 0 1px #5865F2",
+                          }}
+                        />
+                      </FormControl>
+
                       <FormControl display="flex" alignItems="center">
                         <Checkbox
                           isChecked={leaveImageEnabled}
@@ -623,10 +663,9 @@ export default function App() {
                           mr={3}
                           colorScheme="blue"
                           size="lg"
-                          isDisabled={!welcomeImageUrl}
                         />
-                        <FormLabel mb={0} fontWeight="medium" color={welcomeImageUrl ? "#ffffff" : "#72767d"}>
-                          Enable Black & White Image for Leave (uses welcome image)
+                        <FormLabel mb={0} fontWeight="medium" color="#ffffff">
+                          Enable Leave Card (Black & White)
                         </FormLabel>
                       </FormControl>
 
