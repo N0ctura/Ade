@@ -92,9 +92,11 @@ export interface WvPlayer {
   rankedSeasonSkill?: number;
   rankedSeasonBestSkill?: number;
   rankedSeasonHighestLeague?: number;
+  clan?: { id?: string; name?: string };
   clanName?: string;
   equippedAvatarItem?: { imageUrl?: string };
   equippedProfileIcon?: { imageUrl?: string };
+  equippedProfileFrame?: { imageUrl?: string };
   playerTitle?: { title?: string };
   lastOnline?: string;
   createdAt?: string;
