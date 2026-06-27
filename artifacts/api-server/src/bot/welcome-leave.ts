@@ -40,6 +40,9 @@ async function createWelcomeCard(
   const avatarBuffer = Buffer.from(await avatarResponse.arrayBuffer());
   const avatar = await loadImage(avatarBuffer);
 
+  // Salva contesto
+  ctx.save();
+
   // Disegna cerchio per avatar
   ctx.beginPath();
   ctx.arc(canvas.width / 2, 130, 80, 0, Math.PI * 2);
@@ -50,10 +53,7 @@ async function createWelcomeCard(
   ctx.drawImage(avatar, canvas.width / 2 - 80, 50, 160, 160);
 
   // Ripristina clip
-  ctx.beginPath();
-  ctx.arc(canvas.width / 2, 130, 80, 0, Math.PI * 2);
-  ctx.closePath();
-  ctx.clip();
+  ctx.restore();
 
   // Testo
   ctx.fillStyle = "#ffffff";
