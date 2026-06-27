@@ -20,6 +20,7 @@ import { loadConfig, saveConfig, initStorage } from "./storage.js";
 import { schedulePollClose } from "./poll-timer.js";
 import { fetchPlayerByUsername, fetchClanById } from "./wolvesville.js";
 import { generateProfileCard } from "./profile-card.js";
+import { handleMemberJoin, handleMemberLeave } from "./welcome-leave.js";
 
 type BotCommand = typeof sondaggioCommand | typeof impostazioniCommand | typeof debugTempliCommand | typeof fineCommand;
 
@@ -96,6 +97,23 @@ export async function startBot(): Promise<void> {
     const config = loadConfig();
     if (config.activePoll?.closesAt) {
       schedulePollClose(client, config.activePoll.closesAt);
+    }
+  });
+
+  // Welcome/Leave event listeners
+  client.on("guildMemberAdd", async (member) => {
+    try {
+      await handleMemberJoin(member);
+    } catch (err) {
+      logger.error({ err }, "Error in guildMemberAdd");
+    }
+  });
+
+  client.on("guildMemberRemove", async (member) => {
+    try {
+      await handleMemberLeave(member);
+    } catch (err) {
+      logger.error({ err }, "Error in guildMemberRemove");
     }
   });
 
@@ -246,3 +264,4 @@ export async function startBot(): Promise<void> {
   await initStorage();
   await client.login(token);
 }
+
