@@ -101,6 +101,8 @@ async function buildAll() {
       "puppeteer",
       "puppeteer-core",
       "electron",
+      "ffmpeg-static",
+      "prism-media",
     ],
     sourcemap: "linked",
     plugins: [
