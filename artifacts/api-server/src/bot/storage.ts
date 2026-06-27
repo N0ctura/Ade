@@ -108,7 +108,7 @@ async function dbUpsert(config: BotConfig): Promise<void> {
         set: { data: config as unknown as Record<string, unknown>, updatedAt: new Date() },
       });
   } catch (err) {
-    logger.error({ err }, "storage: impossibile salvare config su PostgreSQL");
+    logger.debug({ err }, "storage: impossibile salvare config su PostgreSQL (DB non configurato)");
   }
 }
 
@@ -123,7 +123,7 @@ async function dbEnsureTable(): Promise<void> {
       )
     `);
   } catch (err) {
-    logger.warn({ err }, "storage: impossibile creare tabella bot_config (potrebbe già esistere)");
+    logger.debug({ err }, "storage: DB non configurato, uso file locale");
   }
 }
 
@@ -137,7 +137,7 @@ async function dbLoad(): Promise<BotConfig | null> {
     }
     return null;
   } catch (err) {
-    logger.error({ err }, "storage: impossibile leggere config da PostgreSQL");
+    logger.debug({ err }, "storage: DB non configurato, uso file locale");
     return null;
   }
 }
