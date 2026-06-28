@@ -1510,7 +1510,7 @@ export default function App() {
                 <Heading size="2xl" mb={2} color="#ffffff">
                   Autorole
                 </Heading>
-                <Text color="#72767d">Configura il ruolo da assegnare automaticamente ai nuovi membri</Text>
+                <Text color="#72767d">Configura il ruolo da assegnare automaticamente quando un nuovo membro entra nel server</Text>
               </Box>
 
               <Box bg="#2f3136" p={8} borderRadius={0} border="1px" borderColor="#202225">
