@@ -80,8 +80,10 @@ export function getDefaultLeaveCard(): CardConfig {
       layer.grayscale = true;
     }
   });
-  defaultCard.layers.find(l => l.id === "title")!.text = "Arrivederci {username}!";
-  defaultCard.layers.find(l => l.id === "subtitle")!.text = "Ci mancherai!";
+  const titleLayer = defaultCard.layers.find(l => l.id === "title");
+  if (titleLayer) titleLayer.text = "Arrivederci {username}!";
+  const subtitleLayer = defaultCard.layers.find(l => l.id === "subtitle");
+  if (subtitleLayer) subtitleLayer.text = "Ci mancherai!";
   return defaultCard;
 }
 
