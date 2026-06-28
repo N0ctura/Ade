@@ -52,16 +52,20 @@ export default function Login({ onAuthenticated }: LoginProps) {
   };
 
   const handleLogin = async () => {
+    console.log("[handleLogin] Button clicked — starting Discord OAuth flow");
     setIsLoading(true);
     setError(null);
     try {
+      console.log("[handleLogin] Calling getDiscordAuthUrl()…");
       const url = await getDiscordAuthUrl();
+      console.log("[handleLogin] getDiscordAuthUrl() resolved, url:", url);
       if (typeof url !== "string" || !url.startsWith("https://")) {
         throw new Error("Invalid Discord authorization URL");
       }
+      console.log("[handleLogin] URL is valid — redirecting to Discord");
       window.location.assign(url);
     } catch (err: any) {
-      console.error("Login error:", err);
+      console.error("[handleLogin] Caught error:", err);
       setError(err.message || "Discord login is not available right now.");
       setIsLoading(false);
     }
