@@ -56,7 +56,10 @@ export default function Login({ onAuthenticated }: LoginProps) {
     setError(null);
     try {
       const url = await getDiscordAuthUrl();
-      window.location.href = url;
+      if (typeof url !== "string" || !url.startsWith("https://")) {
+        throw new Error("Invalid Discord authorization URL");
+      }
+      window.location.assign(url);
     } catch (err: any) {
       console.error("Login error:", err);
       setError(err.message || "Discord login is not available right now.");
