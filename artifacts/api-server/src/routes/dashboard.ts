@@ -3,8 +3,39 @@ import { logger } from "../lib/logger.js";
 
 const router = Router();
 
-const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID;
-const DISCORD_REDIRECT_URI = process.env.DISCORD_REDIRECT_URI || "http://localhost:3000/auth/callback";
+// Read env vars at request time so Railway's runtime values are always used
+function getDiscordConfig() {
+  const clientId = process.env.DISCORD_CLIENT_ID;
+  const redirectUri =
+    process.env.DISCORD_REDIRECT_URI || "http://localhost:3000/auth/callback";
+
+  if (!clientId) {
+    logger.warn(
+      "DISCORD_CLIENT_ID is not set — Discord OAuth login will not work"
+    );
+  }
+
+  return { clientId, redirectUri };
+}
+
+// GET /config/discord (mounted at /api/dashboard/config/discord) — returns
+// Discord OAuth config as JSON so the browser can fetch it at runtime instead
+// of relying on server-side template interpolation (which breaks when env vars
+// are undefined at module load time).
+router.get("/config/discord", (req: Request, res: Response) => {
+  const { clientId, redirectUri } = getDiscordConfig();
+
+  if (!clientId) {
+    logger.error(
+      "GET /api/config/discord called but DISCORD_CLIENT_ID is missing"
+    );
+    return res.status(503).json({
+      error: "Discord OAuth is not configured on this server",
+    });
+  }
+
+  res.json({ clientId, redirectUri });
+});
 
 // Serve the dashboard HTML
 router.get("/", (req: Request, res: Response) => {
@@ -383,8 +414,27 @@ router.get("/", (req: Request, res: Response) => {
     
     <script>
         const BOT_API_URL = window.location.origin;
-        const DISCORD_CLIENT_ID = "${DISCORD_CLIENT_ID}";
-        const DISCORD_REDIRECT_URI = "${DISCORD_REDIRECT_URI}";
+
+        // Discord OAuth config is fetched from the server at runtime so that
+        // missing or late-bound environment variables never silently produce
+        // the literal string "undefined" in the OAuth redirect URL.
+        let _discordConfig = null;
+
+        async function getDiscordConfig() {
+            if (_discordConfig) return _discordConfig;
+            try {
+                const res = await fetch("/api/dashboard/config/discord");
+                if (!res.ok) {
+                    const body = await res.json().catch(() => ({}));
+                    throw new Error(body.error || "Failed to load Discord config");
+                }
+                _discordConfig = await res.json();
+                return _discordConfig;
+            } catch (err) {
+                console.error("Could not fetch Discord config:", err);
+                throw err;
+            }
+        }
         
         function getAccessToken() {
             return localStorage.getItem("discord_access_token");
@@ -402,14 +452,19 @@ router.get("/", (req: Request, res: Response) => {
             return !!getAccessToken();
         }
         
-        function loginDiscord() {
-            const params = new URLSearchParams({
-                client_id: DISCORD_CLIENT_ID,
-                redirect_uri: DISCORD_REDIRECT_URI,
-                response_type: "code",
-                scope: "identify guilds"
-            });
-            window.location.href = \`https://discord.com/api/oauth2/authorize?\${params.toString()}\`;
+        async function loginDiscord() {
+            try {
+                const config = await getDiscordConfig();
+                const params = new URLSearchParams({
+                    client_id: config.clientId,
+                    redirect_uri: config.redirectUri,
+                    response_type: "code",
+                    scope: "identify guilds"
+                });
+                window.location.href = \`https://discord.com/api/oauth2/authorize?\${params.toString()}\`;
+            } catch (err) {
+                showToast("Discord login is not available right now. Please try again later.", "error");
+            }
         }
         
         function logout() {
