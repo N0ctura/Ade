@@ -16,8 +16,8 @@ COPY . .
 # and let pnpm regenerate lockfile if platform entries differ
 RUN pnpm install --no-frozen-lockfile
 
-# Build dashboard with pnpm (dependencies already installed above)
-RUN cd dashboard && pnpm run build
+# Build dashboard with pnpm (now it's recognized as a workspace package)
+RUN pnpm --filter ade-dashboard run build
 
 # Build the api-server bundle
 RUN pnpm --filter @workspace/api-server run build
