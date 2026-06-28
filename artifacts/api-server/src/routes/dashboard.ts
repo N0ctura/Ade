@@ -495,8 +495,9 @@ router.get("/", (req: Request, res: Response) => {
                     if (!res.ok) throw new Error("Auth failed");
                     const data = await res.json();
                     setAccessToken(data.access_token);
-                    window.history.replaceState({}, document.title, "/dashboard");
+                    window.history.replaceState({}, document.title, "/api/dashboard");
                     location.reload();
+
                 } catch (err) {
                     showToast("Authentication failed", "error");
                 }
@@ -582,6 +583,7 @@ router.get("/", (req: Request, res: Response) => {
             const channelId = document.getElementById("welcomeChannel").value;
             const message = document.getElementById("welcomeMessage").value;
             const enabled = document.getElementById("welcomeEnabled").checked;
+            const guildName = document.getElementById("welcomeGuild").selectedOptions[0]?.text || guildId;
             
             if (!guildId || !channelId || !message) {
                 showToast("Please fill all fields", "error");
@@ -589,21 +591,31 @@ router.get("/", (req: Request, res: Response) => {
             }
             
             try {
-                const res = await fetch("/api/config", {
+                // Fetch existing config for this guild so we preserve leave settings
+                const existingRes = await fetch("/api/discord/config");
+                const allConfigs = existingRes.ok ? await existingRes.json() : [];
+                const existing = allConfigs.find(c => c.guildId === guildId) || {};
+
+                const res = await fetch("/api/discord/config", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
-                        type: "welcome",
                         guildId,
+                        guildName,
                         welcomeChannelId: channelId,
                         welcomeMessage: message,
-                        welcomeEnabled: enabled
+                        welcomeEnabled: enabled,
+                        leaveChannelId: existing.leaveChannelId || "",
+                        leaveMessage: existing.leaveMessage || "",
+                        leaveEnabled: existing.leaveEnabled || false
                     })
                 });
                 
                 if (res.ok) {
                     showToast("Welcome message saved!", "success");
                     loadConfigs();
+                } else {
+                    showToast("Failed to save", "error");
                 }
             } catch (err) {
                 showToast("Failed to save", "error");
@@ -615,6 +627,7 @@ router.get("/", (req: Request, res: Response) => {
             const channelId = document.getElementById("leaveChannel").value;
             const message = document.getElementById("leaveMessage").value;
             const enabled = document.getElementById("leaveEnabled").checked;
+            const guildName = document.getElementById("leaveGuild").selectedOptions[0]?.text || guildId;
             
             if (!guildId || !channelId || !message) {
                 showToast("Please fill all fields", "error");
@@ -622,12 +635,20 @@ router.get("/", (req: Request, res: Response) => {
             }
             
             try {
-                const res = await fetch("/api/config", {
+                // Fetch existing config for this guild so we preserve welcome settings
+                const existingRes = await fetch("/api/discord/config");
+                const allConfigs = existingRes.ok ? await existingRes.json() : [];
+                const existing = allConfigs.find(c => c.guildId === guildId) || {};
+
+                const res = await fetch("/api/discord/config", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
-                        type: "leave",
                         guildId,
+                        guildName,
+                        welcomeChannelId: existing.welcomeChannelId || "",
+                        welcomeMessage: existing.welcomeMessage || "",
+                        welcomeEnabled: existing.welcomeEnabled || false,
                         leaveChannelId: channelId,
                         leaveMessage: message,
                         leaveEnabled: enabled
@@ -637,6 +658,8 @@ router.get("/", (req: Request, res: Response) => {
                 if (res.ok) {
                     showToast("Leave message saved!", "success");
                     loadConfigs();
+                } else {
+                    showToast("Failed to save", "error");
                 }
             } catch (err) {
                 showToast("Failed to save", "error");
@@ -645,11 +668,12 @@ router.get("/", (req: Request, res: Response) => {
         
         async function loadConfigs() {
             try {
-                const res = await fetch("/api/configs");
+                const res = await fetch("/api/discord/config");
                 if (!res.ok) throw new Error("Failed to load configs");
                 const configs = await res.json();
                 
                 const list = document.getElementById("configsList");
+
                 if (configs.length === 0) {
                     list.innerHTML = "<p>No configurations saved yet</p>";
                     return;
