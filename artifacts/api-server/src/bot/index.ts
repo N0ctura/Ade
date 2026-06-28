@@ -17,7 +17,6 @@ import * as sondaggioCommand from "./commands/sondaggio.js";
 import * as impostazioniCommand from "./commands/impostazioni.js";
 import * as debugTempliCommand from "./commands/debug-templi.js";
 import * as fineCommand from "./commands/fine.js";
-import * as ttsCommandsModule from "./commands/tts.js";
 import { BOT_CONFIG } from "./config.js";
 import { loadConfig, saveConfig, initStorage } from "./storage.js";
 import { schedulePollClose } from "./poll-timer.js";
@@ -151,7 +150,6 @@ export async function startBot(): Promise<void> {
       impostazioniCommand.data.toJSON(),
       debugTempliCommand.data.toJSON(),
       fineCommand.data.toJSON(),
-      ...ttsCommandsModule.ttsCommands.map(cmd => cmd.toJSON()),
     ];
 
     try {
@@ -247,22 +245,6 @@ export async function startBot(): Promise<void> {
     }
 
     if (!interaction.isChatInputCommand()) return;
-
-    // Check se è un comando TTS
-    const isTTSCommand = ttsCommandsModule.ttsCommands.some(cmd => cmd.name === interaction.commandName);
-    if (isTTSCommand) {
-      try {
-        await ttsCommandsModule.handleTTSCommand(interaction);
-      } catch (err) {
-        logger.error({ err, command: interaction.commandName }, "Errore comando TTS");
-        const errorMsg = { content: "❌ Si è verificato un errore. Riprova più tardi.", ephemeral: true };
-        if (interaction.replied || interaction.deferred) await interaction.followUp(errorMsg);
-        else await interaction.reply(errorMsg);
-      }
-      return;
-    }
-
-    // Altrimenti procedi con i comandi normali
     const command = commands.get(interaction.commandName);
     if (!command) return;
 

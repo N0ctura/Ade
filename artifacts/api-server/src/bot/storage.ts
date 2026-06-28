@@ -69,21 +69,47 @@ export const THRESHOLD_ROLE_ID_SET = new Set<string>(
   DEFAULT_THRESHOLD_TIERS.flatMap((t) => t.roleIds)
 );
 
+export interface CardLayer {
+  id: string;
+  type: 'background' | 'image' | 'avatar' | 'text';
+  visible: boolean;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  // For image/background
+  url?: string;
+  // For text
+  text?: string;
+  fontSize?: number;
+  fontWeight?: 'normal' | 'bold';
+  color?: string;
+  textAlign?: 'left' | 'center' | 'right';
+  // For avatar
+  borderWidth?: number;
+  borderColor?: string;
+  borderRadius?: number; // percentage 0-100
+  // For grayscale (leave card)
+  grayscale?: boolean;
+}
+
+export interface CardConfig {
+  width: number;
+  height: number;
+  layers: CardLayer[];
+}
+
 export interface GuildWelcomeLeaveConfig {
   guildId: string;
   guildName: string;
   welcomeChannelId?: string;
   welcomeMessage?: string;
   welcomeEnabled?: boolean;
-  welcomeImageUrl?: string;
-  welcomeCardTitle?: string;
-  welcomeCardSubtitle?: string;
+  welcomeCard?: CardConfig;
   leaveChannelId?: string;
   leaveMessage?: string;
   leaveEnabled?: boolean;
-  leaveImageEnabled?: boolean;
-  leaveCardTitle?: string;
-  leaveCardSubtitle?: string;
+  leaveCard?: CardConfig;
 }
 
 export interface GuildTTSConfig {

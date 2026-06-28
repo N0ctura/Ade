@@ -124,7 +124,7 @@ router.get("/config", (req: Request, res: Response) => {
  */
 router.post("/config", (req: Request, res: Response) => {
   try {
-    const { guildId, guildName, welcomeChannelId, welcomeMessage, welcomeEnabled, welcomeImageUrl, welcomeCardTitle, welcomeCardSubtitle, leaveChannelId, leaveMessage, leaveEnabled, leaveImageEnabled, leaveCardTitle, leaveCardSubtitle } = req.body;
+    const { guildId, guildName, welcomeChannelId, welcomeMessage, welcomeEnabled, welcomeCard, leaveChannelId, leaveMessage, leaveEnabled, leaveCard } = req.body;
 
     if (!guildId || !guildName) {
       return res.status(400).json({ error: "Guild ID and name are required" });
@@ -140,15 +140,11 @@ router.post("/config", (req: Request, res: Response) => {
       welcomeChannelId,
       welcomeMessage,
       welcomeEnabled,
-      welcomeImageUrl,
-      welcomeCardTitle,
-      welcomeCardSubtitle,
+      welcomeCard,
       leaveChannelId,
       leaveMessage,
       leaveEnabled,
-      leaveImageEnabled,
-      leaveCardTitle,
-      leaveCardSubtitle,
+      leaveCard,
     };
 
     if (existingIndex !== -1) {

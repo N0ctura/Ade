@@ -1,112 +1,226 @@
 // @ts-nocheck
 import { GuildMember, AttachmentBuilder } from "discord.js";
 import { logger } from "../lib/logger.js";
-import { loadConfig } from "./storage.js";
+import { loadConfig, CardConfig } from "./storage.js";
 import { createCanvas, loadImage } from "@napi-rs/canvas";
 
-export function replaceVariables(message: string, member: GuildMember): string {
-  return message
+export function replaceVariables(text: string, member: GuildMember): string {
+  return text
     .replace(/{user}/g, member.toString())
     .replace(/{username}/g, member.user.username)
     .replace(/{guild}/g, member.guild.name)
     .replace(/{memberCount}/g, member.guild.memberCount.toString());
 }
 
-async function createWelcomeCard(
-  member: GuildMember,
-  backgroundUrl: string | undefined,
-  welcomeText: string,
-  subtitleText: string
-): Promise<Buffer> {
-  // Crea canvas
-  const canvas = createCanvas(800, 400);
-  const ctx = canvas.getContext("2d");
-
-  // Disegna sfondo (default o immagine)
-  if (backgroundUrl) {
-    try {
-      const bgResponse = await fetch(backgroundUrl);
-      const bgBuffer = Buffer.from(await bgResponse.arrayBuffer());
-      const background = await loadImage(bgBuffer);
-      ctx.drawImage(background, 0, 0, canvas.width, canvas.height);
-      // Aggiungi overlay semi-trasparente
-      ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-    } catch (err) {
-      // Gradient di default se l'immagine fallisce
-      const gradient = ctx.createLinearGradient(0, 0, 800, 400);
-      gradient.addColorStop(0, "#5865F2");
-      gradient.addColorStop(1, "#57F287");
-      ctx.fillStyle = gradient;
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-    }
-  } else {
-    // Gradient di default
-    const gradient = ctx.createLinearGradient(0, 0, 800, 400);
-    gradient.addColorStop(0, "#5865F2");
-    gradient.addColorStop(1, "#57F287");
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-  }
-
-  // Disegna avatar
-  const avatarUrl = member.user.displayAvatarURL({ extension: "png", size: 256 });
-  const avatarResponse = await fetch(avatarUrl);
-  const avatarBuffer = Buffer.from(await avatarResponse.arrayBuffer());
-  const avatar = await loadImage(avatarBuffer);
-
-  // Salva contesto
-  ctx.save();
-
-  // Disegna cerchio per avatar
-  ctx.beginPath();
-  ctx.arc(canvas.width / 2, 130, 80, 0, Math.PI * 2);
-  ctx.closePath();
-  ctx.clip();
-
-  // Disegna avatar
-  ctx.drawImage(avatar, canvas.width / 2 - 80, 50, 160, 160);
-
-  // Ripristina clip
-  ctx.restore();
-
-  // Testo
-  ctx.fillStyle = "#ffffff";
-  ctx.textAlign = "center";
-
-  // Titolo
-  ctx.font = "bold 36px Arial";
-  ctx.fillText(replaceVariables(welcomeText || `Benvenuto {username}!`, member), canvas.width / 2, 280);
-
-  // Sottotitolo
-  ctx.font = "24px Arial";
-  ctx.fillText(replaceVariables(subtitleText || `Sei il {memberCount}° membro di {guild}!`, member), canvas.width / 2, 320);
-
-  return canvas.toBuffer("image/png");
+// Default card configuration for welcome
+export function getDefaultWelcomeCard(): CardConfig {
+  return {
+    width: 800,
+    height: 400,
+    layers: [
+      {
+        id: "bg",
+        type: "background",
+        visible: true,
+        x: 0,
+        y: 0,
+        width: 800,
+        height: 400,
+        url: ""
+      },
+      {
+        id: "avatar",
+        type: "avatar",
+        visible: true,
+        x: 320,
+        y: 50,
+        width: 160,
+        height: 160,
+        borderWidth: 4,
+        borderColor: "#ffffff",
+        borderRadius: 50
+      },
+      {
+        id: "title",
+        type: "text",
+        visible: true,
+        x: 400,
+        y: 250,
+        width: 800,
+        height: 50,
+        text: "Benvenuto {username}!",
+        fontSize: 36,
+        fontWeight: "bold",
+        color: "#ffffff",
+        textAlign: "center"
+      },
+      {
+        id: "subtitle",
+        type: "text",
+        visible: true,
+        x: 400,
+        y: 300,
+        width: 800,
+        height: 40,
+        text: "Sei il {memberCount}° membro di {guild}!",
+        fontSize: 24,
+        fontWeight: "normal",
+        color: "#ffffff",
+        textAlign: "center"
+      }
+    ]
+  };
 }
 
-async function convertToBlackAndWhite(imageUrl: string): Promise<Buffer> {
-  const response = await fetch(imageUrl);
-  const arrayBuffer = await response.arrayBuffer();
-  const buffer = Buffer.from(arrayBuffer);
+// Default card configuration for leave (grayscale)
+export function getDefaultLeaveCard(): CardConfig {
+  const defaultCard = getDefaultWelcomeCard();
+  defaultCard.layers.forEach(layer => {
+    if (layer.type === "background") {
+      layer.grayscale = true;
+    }
+  });
+  defaultCard.layers.find(l => l.id === "title")!.text = "Arrivederci {username}!";
+  defaultCard.layers.find(l => l.id === "subtitle")!.text = "Ci mancherai!";
+  return defaultCard;
+}
 
-  const img = await loadImage(buffer);
-  const canvas = createCanvas(img.width, img.height);
+async function renderCard(
+  member: GuildMember,
+  cardConfig: CardConfig | undefined,
+  isLeave: boolean = false
+): Promise<Buffer> {
+  const config = cardConfig || (isLeave ? getDefaultLeaveCard() : getDefaultWelcomeCard());
+  const canvas = createCanvas(config.width, config.height);
   const ctx = canvas.getContext("2d");
 
-  ctx.drawImage(img, 0, 0);
+  // Clear canvas
+  ctx.fillStyle = "#202225";
+  ctx.fillRect(0, 0, config.width, config.height);
 
-  const imageData = ctx.getImageData(0, 0, img.width, img.height);
-  const data = imageData.data;
+  for (const layer of config.layers) {
+    if (!layer.visible) continue;
 
-  for (let i = 0; i < data.length; i += 4) {
-    const gray = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
-    data[i] = gray;
-    data[i + 1] = gray;
-    data[i + 2] = gray;
+    ctx.save();
+
+    switch (layer.type) {
+      case "background":
+      case "image":
+        if (layer.url) {
+          try {
+            const bgResponse = await fetch(layer.url);
+            const bgBuffer = Buffer.from(await bgResponse.arrayBuffer());
+            const img = await loadImage(bgBuffer);
+            ctx.drawImage(img, layer.x, layer.y, layer.width, layer.height);
+            
+            if (layer.grayscale || isLeave) {
+              const imageData = ctx.getImageData(layer.x, layer.y, layer.width, layer.height);
+              const data = imageData.data;
+              for (let i = 0; i < data.length; i += 4) {
+                const gray = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+                data[i] = gray;
+                data[i + 1] = gray;
+                data[i + 2] = gray;
+              }
+              ctx.putImageData(imageData, layer.x, layer.y);
+            }
+          } catch (err) {
+            // Fallback gradient
+            const gradient = ctx.createLinearGradient(layer.x, layer.y, layer.x + layer.width, layer.y + layer.height);
+            if (isLeave) {
+              gradient.addColorStop(0, "#2c2f33");
+              gradient.addColorStop(1, "#23272a");
+            } else {
+              gradient.addColorStop(0, "#5865F2");
+              gradient.addColorStop(1, "#57F287");
+            }
+            ctx.fillStyle = gradient;
+            ctx.fillRect(layer.x, layer.y, layer.width, layer.height);
+          }
+        } else {
+          // Fallback gradient
+          const gradient = ctx.createLinearGradient(layer.x, layer.y, layer.x + layer.width, layer.y + layer.height);
+          if (isLeave) {
+            gradient.addColorStop(0, "#2c2f33");
+            gradient.addColorStop(1, "#23272a");
+          } else {
+            gradient.addColorStop(0, "#5865F2");
+            gradient.addColorStop(1, "#57F287");
+          }
+          ctx.fillStyle = gradient;
+          ctx.fillRect(layer.x, layer.y, layer.width, layer.height);
+        }
+        break;
+
+      case "avatar":
+        try {
+          const avatarUrl = member.user.displayAvatarURL({ extension: "png", size: 256 });
+          const avatarResponse = await fetch(avatarUrl);
+          const avatarBuffer = Buffer.from(await avatarResponse.arrayBuffer());
+          const avatar = await loadImage(avatarBuffer);
+
+          // Border radius
+          const radius = (layer.borderRadius || 50) * Math.min(layer.width, layer.height) / 200;
+          ctx.beginPath();
+          ctx.arc(layer.x + layer.width / 2, layer.y + layer.height / 2, radius, 0, Math.PI * 2);
+          ctx.closePath();
+          ctx.clip();
+
+          // Draw avatar
+          ctx.drawImage(avatar, layer.x, layer.y, layer.width, layer.height);
+          
+          // Reset clip for border
+          ctx.restore();
+          ctx.save();
+
+          // Draw border
+          if (layer.borderWidth && layer.borderWidth > 0) {
+            ctx.strokeStyle = layer.borderColor || "#ffffff";
+            ctx.lineWidth = layer.borderWidth;
+            ctx.beginPath();
+            ctx.arc(layer.x + layer.width / 2, layer.y + layer.height / 2, radius - layer.borderWidth / 2, 0, Math.PI * 2);
+            ctx.closePath();
+            ctx.stroke();
+          }
+
+          // Grayscale for leave card
+          if (isLeave) {
+            const imageData = ctx.getImageData(layer.x, layer.y, layer.width, layer.height);
+            const data = imageData.data;
+            for (let i = 0; i < data.length; i += 4) {
+              const gray = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+              data[i] = gray;
+              data[i + 1] = gray;
+              data[i + 2] = gray;
+            }
+            ctx.putImageData(imageData, layer.x, layer.y);
+          }
+        } catch (err) {
+          logger.error({ err }, "Error loading avatar");
+        }
+        break;
+
+      case "text":
+        ctx.fillStyle = layer.color || "#ffffff";
+        ctx.font = `${layer.fontWeight || "normal"} ${layer.fontSize || 24}px Arial`;
+        ctx.textAlign = layer.textAlign || "center";
+        ctx.textBaseline = "middle";
+        
+        const processedText = replaceVariables(layer.text || "", member);
+        
+        if (layer.textAlign === "center") {
+          ctx.fillText(processedText, layer.x + layer.width / 2, layer.y + layer.height / 2);
+        } else if (layer.textAlign === "right") {
+          ctx.fillText(processedText, layer.x + layer.width, layer.y + layer.height / 2);
+        } else {
+          ctx.fillText(processedText, layer.x, layer.y + layer.height / 2);
+        }
+        break;
+    }
+
+    ctx.restore();
   }
 
-  ctx.putImageData(imageData, 0, 0);
   return canvas.toBuffer("image/png");
 }
 
@@ -123,12 +237,7 @@ export async function handleMemberJoin(member: GuildMember): Promise<void> {
 
     let files = [];
     try {
-      const cardBuffer = await createWelcomeCard(
-        member,
-        guildConfig.welcomeImageUrl,
-        guildConfig.welcomeCardTitle,
-        guildConfig.welcomeCardSubtitle
-      );
+      const cardBuffer = await renderCard(member, guildConfig.welcomeCard, false);
       const attachment = new AttachmentBuilder(cardBuffer, { name: "welcome-card.png" });
       files.push(attachment);
     } catch (err) {
@@ -148,91 +257,6 @@ export async function handleMemberJoin(member: GuildMember): Promise<void> {
   }
 }
 
-async function createLeaveCard(
-  member: GuildMember,
-  backgroundUrl: string | undefined,
-  leaveText: string,
-  subtitleText: string
-): Promise<Buffer> {
-  // Crea canvas
-  const canvas = createCanvas(800, 400);
-  const ctx = canvas.getContext("2d");
-
-  // Disegna sfondo (default o immagine in bianco e nero)
-  if (backgroundUrl) {
-    try {
-      const bgResponse = await fetch(backgroundUrl);
-      const bgBuffer = Buffer.from(await bgResponse.arrayBuffer());
-      const background = await loadImage(bgBuffer);
-      ctx.drawImage(background, 0, 0, canvas.width, canvas.height);
-
-      // Converti in bianco e nero
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const data = imageData.data;
-      for (let i = 0; i < data.length; i += 4) {
-        const gray = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
-        data[i] = gray;
-        data[i + 1] = gray;
-        data[i + 2] = gray;
-      }
-      ctx.putImageData(imageData, 0, 0);
-
-      // Aggiungi overlay semi-trasparente
-      ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-    } catch (err) {
-      // Gradient di default in bianco e nero
-      const gradient = ctx.createLinearGradient(0, 0, 800, 400);
-      gradient.addColorStop(0, "#2c2f33");
-      gradient.addColorStop(1, "#23272a");
-      ctx.fillStyle = gradient;
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-    }
-  } else {
-    // Gradient di default in bianco e nero
-    const gradient = ctx.createLinearGradient(0, 0, 800, 400);
-    gradient.addColorStop(0, "#2c2f33");
-    gradient.addColorStop(1, "#23272a");
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-  }
-
-  // Disegna avatar
-  const avatarUrl = member.user.displayAvatarURL({ extension: "png", size: 256 });
-  const avatarResponse = await fetch(avatarUrl);
-  const avatarBuffer = Buffer.from(await avatarResponse.arrayBuffer());
-  const avatar = await loadImage(avatarBuffer);
-
-  // Salva contesto
-  ctx.save();
-
-  // Disegna cerchio per avatar
-  ctx.beginPath();
-  ctx.arc(canvas.width / 2, 130, 80, 0, Math.PI * 2);
-  ctx.closePath();
-  ctx.clip();
-
-  // Disegna avatar
-  ctx.drawImage(avatar, canvas.width / 2 - 80, 50, 160, 160);
-
-  // Ripristina clip
-  ctx.restore();
-
-  // Testo
-  ctx.fillStyle = "#ffffff";
-  ctx.textAlign = "center";
-
-  // Titolo
-  ctx.font = "bold 36px Arial";
-  ctx.fillText(replaceVariables(leaveText || "Arrivederci {username}!", member), canvas.width / 2, 280);
-
-  // Sottotitolo
-  ctx.font = "24px Arial";
-  ctx.fillText(replaceVariables(subtitleText || "Ci mancherai!", member), canvas.width / 2, 320);
-
-  return canvas.toBuffer("image/png");
-}
-
 export async function handleMemberLeave(member: GuildMember): Promise<void> {
   const config = loadConfig();
   const guildConfig = config.welcomeLeaveConfigs?.find(c => c.guildId === member.guild.id);
@@ -245,19 +269,12 @@ export async function handleMemberLeave(member: GuildMember): Promise<void> {
     const messageContent = guildConfig.leaveMessage ? replaceVariables(guildConfig.leaveMessage, member) : "";
 
     let files = [];
-    if (guildConfig.leaveImageEnabled) {
-      try {
-        const cardBuffer = await createLeaveCard(
-          member,
-          guildConfig.welcomeImageUrl,
-          guildConfig.leaveCardTitle,
-          guildConfig.leaveCardSubtitle
-        );
-        const attachment = new AttachmentBuilder(cardBuffer, { name: "leave-card.png" });
-        files.push(attachment);
-      } catch (err) {
-        logger.error({ err, guildId: member.guild.id }, "Error creating leave card");
-      }
+    try {
+      const cardBuffer = await renderCard(member, guildConfig.leaveCard, true);
+      const attachment = new AttachmentBuilder(cardBuffer, { name: "leave-card.png" });
+      files.push(attachment);
+    } catch (err) {
+      logger.error({ err, guildId: member.guild.id }, "Error creating leave card");
     }
 
     const messagePayload: any = {};
@@ -272,4 +289,3 @@ export async function handleMemberLeave(member: GuildMember): Promise<void> {
     logger.error({ err, guildId: member.guild.id }, "Error sending leave message");
   }
 }
-

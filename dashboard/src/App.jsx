@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   Box,
   Flex,
@@ -35,7 +35,6 @@ import {
   TabPanel,
   TabPanels,
   Tabs,
-  Image,
 } from "@chakra-ui/react";
 import { motion } from "framer-motion";
 import {
@@ -49,12 +48,90 @@ import {
   FaCog,
   FaDoorOpen,
   FaMicrophone,
+  FaPlus,
+  FaTrash,
+  FaArrowsAlt,
+  FaEyeSlash,
 } from "react-icons/fa";
 
 const BOT_API_URL = process.env.REACT_APP_BOT_API_URL || "https://ade-production-d78d.up.railway.app";
 
 const MotionBox = motion(Box);
 const MotionFlex = motion(Flex);
+
+// Default card configurations
+const getDefaultWelcomeCard = () => ({
+  width: 800,
+  height: 400,
+  layers: [
+    {
+      id: "bg",
+      type: "background",
+      visible: true,
+      x: 0,
+      y: 0,
+      width: 800,
+      height: 400,
+      url: ""
+    },
+    {
+      id: "avatar",
+      type: "avatar",
+      visible: true,
+      x: 320,
+      y: 50,
+      width: 160,
+      height: 160,
+      borderWidth: 4,
+      borderColor: "#ffffff",
+      borderRadius: 50
+    },
+    {
+      id: "title",
+      type: "text",
+      visible: true,
+      x: 400,
+      y: 250,
+      width: 800,
+      height: 50,
+      text: "Benvenuto {username}!",
+      fontSize: 36,
+      fontWeight: "bold",
+      color: "#ffffff",
+      textAlign: "center"
+    },
+    {
+      id: "subtitle",
+      type: "text",
+      visible: true,
+      x: 400,
+      y: 300,
+      width: 800,
+      height: 40,
+      text: "Sei il {memberCount}° membro di {guild}!",
+      fontSize: 24,
+      fontWeight: "normal",
+      color: "#ffffff",
+      textAlign: "center"
+    }
+  ]
+});
+
+const getDefaultLeaveCard = () => {
+  const defaultCard = getDefaultWelcomeCard();
+  defaultCard.layers.find(l => l.id === "title")!.text = "Arrivederci {username}!";
+  defaultCard.layers.find(l => l.id === "subtitle")!.text = "Ci mancherai!";
+  return defaultCard;
+};
+
+// Helper function to replace variables in preview
+const replaceVars = (text, mockUsername = "TestUser", memberCount = 123) => {
+  return (text || "")
+    .replace(/{user}/g, `<@123456789>`)
+    .replace(/{username}/g, mockUsername)
+    .replace(/{guild}/g, "Test Server")
+    .replace(/{memberCount}/g, memberCount);
+};
 
 const SidebarItem = ({ icon, label, isActive, onClick }) => (
   <MotionFlex
@@ -82,119 +159,652 @@ const SidebarItem = ({ icon, label, isActive, onClick }) => (
   </MotionFlex>
 );
 
-const CardPreview = ({
-  isLeave = false,
-  imageUrl,
-  title,
-  subtitle,
-  memberCount = 123
-}) => {
-  // Mock data for preview
-  const mockUsername = "TestUser";
-  const mockAvatar = "https://cdn.discordapp.com/embed/avatars/0.png";
+// Canvas Preview Component
+const CardCanvasPreview = ({ cardConfig, isLeave, selectedLayerId, onLayerSelect, onLayerDrag }) => {
+  const canvasRef = useRef(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
 
-  // Replace variables in text
-  const replaceVars = (text) => {
-    return (text || (isLeave ? `Arrivederci ${mockUsername}!` : `Benvenuto ${mockUsername}!`))
-      .replace(/{user}/g, `<@123456789>`)
-      .replace(/{username}/g, mockUsername)
-      .replace(/{guild}/g, "Test Server")
-      .replace(/{memberCount}/g, memberCount);
+  useEffect(() => {
+    if (!canvasRef.current || !cardConfig) return;
+
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
+    const { width, height, layers } = cardConfig;
+
+    canvas.width = width;
+    canvas.height = height;
+
+    // Clear canvas
+    ctx.fillStyle = "#202225";
+    ctx.fillRect(0, 0, width, height);
+
+    layers.forEach(layer => {
+      if (!layer.visible) return;
+
+      ctx.save();
+
+      switch (layer.type) {
+        case "background":
+        case "image":
+          if (layer.url) {
+            const img = new Image();
+            img.crossOrigin = "anonymous";
+            img.onload = () => {
+              ctx.drawImage(img, layer.x, layer.y, layer.width, layer.height);
+              if (layer.grayscale || isLeave) {
+                const imageData = ctx.getImageData(layer.x, layer.y, layer.width, layer.height);
+                const data = imageData.data;
+                for (let i = 0; i < data.length; i += 4) {
+                  const gray = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+                  data[i] = gray;
+                  data[i + 1] = gray;
+                  data[i + 2] = gray;
+                }
+                ctx.putImageData(imageData, layer.x, layer.y);
+              }
+            };
+            img.src = layer.url;
+          } else {
+            const gradient = ctx.createLinearGradient(layer.x, layer.y, layer.x + layer.width, layer.y + layer.height);
+            if (isLeave) {
+              gradient.addColorStop(0, "#2c2f33");
+              gradient.addColorStop(1, "#23272a");
+            } else {
+              gradient.addColorStop(0, "#5865F2");
+              gradient.addColorStop(1, "#57F287");
+            }
+            ctx.fillStyle = gradient;
+            ctx.fillRect(layer.x, layer.y, layer.width, layer.height);
+          }
+          break;
+
+        case "avatar":
+          const avatarUrl = "https://cdn.discordapp.com/embed/avatars/0.png";
+          const avatarImg = new Image();
+          avatarImg.crossOrigin = "anonymous";
+          avatarImg.onload = () => {
+            const radius = (layer.borderRadius || 50) * Math.min(layer.width, layer.height) / 200;
+            ctx.beginPath();
+            ctx.arc(layer.x + layer.width / 2, layer.y + layer.height / 2, radius, 0, Math.PI * 2);
+            ctx.closePath();
+            ctx.clip();
+            ctx.drawImage(avatarImg, layer.x, layer.y, layer.width, layer.height);
+
+            ctx.restore();
+            ctx.save();
+
+            if (layer.borderWidth && layer.borderWidth > 0) {
+              ctx.strokeStyle = layer.borderColor || "#ffffff";
+              ctx.lineWidth = layer.borderWidth;
+              ctx.beginPath();
+              ctx.arc(layer.x + layer.width / 2, layer.y + layer.height / 2, radius - layer.borderWidth / 2, 0, Math.PI * 2);
+              ctx.closePath();
+              ctx.stroke();
+            }
+
+            if (isLeave) {
+              const imageData = ctx.getImageData(layer.x, layer.y, layer.width, layer.height);
+              const data = imageData.data;
+              for (let i = 0; i < data.length; i += 4) {
+                const gray = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+                data[i] = gray;
+                data[i + 1] = gray;
+                data[i + 2] = gray;
+              }
+              ctx.putImageData(imageData, layer.x, layer.y);
+            }
+          };
+          avatarImg.src = avatarUrl;
+          break;
+
+        case "text":
+          ctx.fillStyle = layer.color || "#ffffff";
+          ctx.font = `${layer.fontWeight || "normal"} ${layer.fontSize || 24}px Arial`;
+          ctx.textAlign = layer.textAlign || "center";
+          ctx.textBaseline = "middle";
+
+          const processedText = replaceVars(layer.text || "");
+
+          if (layer.textAlign === "center") {
+            ctx.fillText(processedText, layer.x + layer.width / 2, layer.y + layer.height / 2);
+          } else if (layer.textAlign === "right") {
+            ctx.fillText(processedText, layer.x + layer.width, layer.y + layer.height / 2);
+          } else {
+            ctx.fillText(processedText, layer.x, layer.y + layer.height / 2);
+          }
+          break;
+      }
+
+      // Draw selection box if layer is selected
+      if (layer.id === selectedLayerId) {
+        ctx.strokeStyle = "#5865F2";
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 5]);
+        ctx.strokeRect(layer.x, layer.y, layer.width, layer.height);
+        ctx.setLineDash([]);
+      }
+
+      ctx.restore();
+    });
+  }, [cardConfig, isLeave, selectedLayerId]);
+
+  const getLayerAtPosition = (x, y) => {
+    const scaledX = (x / canvasRef.current.offsetWidth) * cardConfig.width;
+    const scaledY = (y / canvasRef.current.offsetHeight) * cardConfig.height;
+
+    return [...cardConfig.layers].reverse().find(layer =>
+      layer.visible &&
+      scaledX >= layer.x &&
+      scaledX <= layer.x + layer.width &&
+      scaledY >= layer.y &&
+      scaledY <= layer.y + layer.height
+    );
   };
 
-  // Background style
-  const getBackgroundStyle = () => {
-    if (imageUrl) {
-      return {
-        backgroundImage: `url(${imageUrl})`,
-        backgroundSize: "cover",
-        backgroundPosition: "center",
-      };
+  const handleMouseDown = (e) => {
+    const rect = canvasRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const layer = getLayerAtPosition(x, y);
+
+    if (layer) {
+      setIsDragging(true);
+      onLayerSelect(layer.id);
+
+      const scaledX = (x / canvasRef.current.offsetWidth) * cardConfig.width;
+      const scaledY = (y / canvasRef.current.offsetHeight) * cardConfig.height;
+
+      setDragOffset({
+        x: scaledX - layer.x,
+        y: scaledY - layer.y
+      });
     }
-    return {
-      background: isLeave
-        ? "linear-gradient(135deg, #2c2f33 0%, #23272a 100%)"
-        : "linear-gradient(135deg, #5865F2 0%, #57F287 100%)",
-    };
+  };
+
+  const handleMouseMove = (e) => {
+    if (!isDragging || !selectedLayerId) return;
+
+    const rect = canvasRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    const scaledX = (x / canvasRef.current.offsetWidth) * cardConfig.width;
+    const scaledY = (y / canvasRef.current.offsetHeight) * cardConfig.height;
+
+    onLayerDrag(selectedLayerId, {
+      x: scaledX - dragOffset.x,
+      y: scaledY - dragOffset.y
+    });
+  };
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
   };
 
   return (
-    <Box
-      w="800px"
-      h="400px"
-      borderRadius="lg"
-      overflow="hidden"
-      position="relative"
-      boxShadow="xl"
-      style={getBackgroundStyle()}
-    >
-      {/* Overlay */}
-      <Box
-        position="absolute"
-        top={0}
-        left={0}
-        right={0}
-        bottom={0}
-        bg="rgba(0,0,0,0.5)"
-      />
+    <canvas
+      ref={canvasRef}
+      style={{
+        width: "100%",
+        height: "auto",
+        cursor: isDragging ? "grabbing" : "default",
+        border: "1px solid #36393f"
+      }}
+      onMouseDown={handleMouseDown}
+      onMouseMove={handleMouseMove}
+      onMouseUp={handleMouseUp}
+      onMouseLeave={handleMouseUp}
+    />
+  );
+};
 
-      {/* Content */}
-      <Flex
-        position="relative"
-        zIndex={1}
-        direction="column"
-        align="center"
-        justify="center"
-        h="100%"
-        color="white"
-      >
-        {/* Avatar */}
-        <Box
-          w="160px"
-          h="160px"
-          borderRadius="50%"
-          border="4px solid white"
-          overflow="hidden"
-          mb="30px"
-          style={isLeave ? { filter: "grayscale(100%)" } : {}}
-        >
-          <Image
-            src={mockAvatar}
-            alt="avatar"
-            w="100%"
-            h="100%"
-            objectFit="cover"
-          />
-        </Box>
-
-        {/* Title */}
-        <Text
-          fontSize="36px"
-          fontWeight="bold"
-          mb="10px"
-          textAlign="center"
-          textShadow="0 2px 4px rgba(0,0,0,0.5)"
-        >
-          {replaceVars(title)}
-        </Text>
-
-        {/* Subtitle */}
-        <Text
-          fontSize="24px"
-          textAlign="center"
-          textShadow="0 2px 4px rgba(0,0,0,0.5)"
-        >
-          {replaceVars(subtitle) || (isLeave ? "Ci mancherai!" : `Sei il ${memberCount}° membro!`)}
-        </Text>
-      </Flex>
+// Layer Editor Panel
+const LayerEditor = ({ layer, onUpdate, onDelete }) => {
+  if (!layer) return (
+    <Box p={4} color="#72767d">
+      <Text>Seleziona un layer per modificarlo</Text>
     </Box>
+  );
+
+  return (
+    <VStack spacing={4} p={4} align="stretch">
+      <Heading size="sm" color="#ffffff">Modifica Layer: {layer.type}</Heading>
+
+      <FormControl display="flex" alignItems="center">
+        <Checkbox
+          isChecked={layer.visible}
+          onChange={(e) => onUpdate({ ...layer, visible: e.target.checked })}
+          colorScheme="blue"
+          mr={2}
+        />
+        <FormLabel mb={0} color="#ffffff">Visibile</FormLabel>
+      </FormControl>
+
+      <Divider borderColor="#36393f" />
+
+      <Grid templateColumns="1fr 1fr" gap={3}>
+        <FormControl>
+          <FormLabel color="#B9BBBE" fontSize="sm">X</FormLabel>
+          <Input
+            type="number"
+            value={layer.x}
+            onChange={(e) => onUpdate({ ...layer, x: Number(e.target.value) })}
+            bg="#36393f"
+            borderColor="#202225"
+            color="#ffffff"
+            borderRadius={0}
+          />
+        </FormControl>
+        <FormControl>
+          <FormLabel color="#B9BBBE" fontSize="sm">Y</FormLabel>
+          <Input
+            type="number"
+            value={layer.y}
+            onChange={(e) => onUpdate({ ...layer, y: Number(e.target.value) })}
+            bg="#36393f"
+            borderColor="#202225"
+            color="#ffffff"
+            borderRadius={0}
+          />
+        </FormControl>
+        <FormControl>
+          <FormLabel color="#B9BBBE" fontSize="sm">Larghezza</FormLabel>
+          <Input
+            type="number"
+            value={layer.width}
+            onChange={(e) => onUpdate({ ...layer, width: Number(e.target.value) })}
+            bg="#36393f"
+            borderColor="#202225"
+            color="#ffffff"
+            borderRadius={0}
+          />
+        </FormControl>
+        <FormControl>
+          <FormLabel color="#B9BBBE" fontSize="sm">Altezza</FormLabel>
+          <Input
+            type="number"
+            value={layer.height}
+            onChange={(e) => onUpdate({ ...layer, height: Number(e.target.value) })}
+            bg="#36393f"
+            borderColor="#202225"
+            color="#ffffff"
+            borderRadius={0}
+          />
+        </FormControl>
+      </Grid>
+
+      {(layer.type === "background" || layer.type === "image") && (
+        <>
+          <Divider borderColor="#36393f" />
+          <FormControl>
+            <FormLabel color="#B9BBBE" fontSize="sm">URL Immagine</FormLabel>
+            <Input
+              value={layer.url || ""}
+              onChange={(e) => onUpdate({ ...layer, url: e.target.value })}
+              bg="#36393f"
+              borderColor="#202225"
+              color="#ffffff"
+              borderRadius={0}
+              placeholder="https://..."
+            />
+          </FormControl>
+        </>
+      )}
+
+      {layer.type === "text" && (
+        <>
+          <Divider borderColor="#36393f" />
+          <FormControl>
+            <FormLabel color="#B9BBBE" fontSize="sm">Testo</FormLabel>
+            <Textarea
+              value={layer.text || ""}
+              onChange={(e) => onUpdate({ ...layer, text: e.target.value })}
+              bg="#36393f"
+              borderColor="#202225"
+              color="#ffffff"
+              borderRadius={0}
+              minH="60px"
+              placeholder="Benvenuto {username}!"
+            />
+          </FormControl>
+          <Grid templateColumns="1fr 1fr" gap={3}>
+            <FormControl>
+              <FormLabel color="#B9BBBE" fontSize="sm">Dimensione Font</FormLabel>
+              <Input
+                type="number"
+                value={layer.fontSize || 24}
+                onChange={(e) => onUpdate({ ...layer, fontSize: Number(e.target.value) })}
+                bg="#36393f"
+                borderColor="#202225"
+                color="#ffffff"
+                borderRadius={0}
+              />
+            </FormControl>
+            <FormControl>
+              <FormLabel color="#B9BBBE" fontSize="sm">Spessore</FormLabel>
+              <Select
+                value={layer.fontWeight || "normal"}
+                onChange={(e) => onUpdate({ ...layer, fontWeight: e.target.value })}
+                bg="#36393f"
+                borderColor="#202225"
+                color="#ffffff"
+                borderRadius={0}
+              >
+                <option value="normal">Normale</option>
+                <option value="bold">Grassetto</option>
+              </Select>
+            </FormControl>
+            <FormControl>
+              <FormLabel color="#B9BBBE" fontSize="sm">Colore</FormLabel>
+              <Input
+                type="color"
+                value={layer.color || "#ffffff"}
+                onChange={(e) => onUpdate({ ...layer, color: e.target.value })}
+                bg="#36393f"
+                borderColor="#202225"
+                borderRadius={0}
+                h="40px"
+              />
+            </FormControl>
+            <FormControl>
+              <FormLabel color="#B9BBBE" fontSize="sm">Allineamento</FormLabel>
+              <Select
+                value={layer.textAlign || "center"}
+                onChange={(e) => onUpdate({ ...layer, textAlign: e.target.value })}
+                bg="#36393f"
+                borderColor="#202225"
+                color="#ffffff"
+                borderRadius={0}
+              >
+                <option value="left">Sinistra</option>
+                <option value="center">Centro</option>
+                <option value="right">Destra</option>
+              </Select>
+            </FormControl>
+          </Grid>
+        </>
+      )}
+
+      {layer.type === "avatar" && (
+        <>
+          <Divider borderColor="#36393f" />
+          <Grid templateColumns="1fr 1fr" gap={3}>
+            <FormControl>
+              <FormLabel color="#B9BBBE" fontSize="sm">Spessore Bordo</FormLabel>
+              <Input
+                type="number"
+                value={layer.borderWidth || 0}
+                onChange={(e) => onUpdate({ ...layer, borderWidth: Number(e.target.value) })}
+                bg="#36393f"
+                borderColor="#202225"
+                color="#ffffff"
+                borderRadius={0}
+              />
+            </FormControl>
+            <FormControl>
+              <FormLabel color="#B9BBBE" fontSize="sm">Colore Bordo</FormLabel>
+              <Input
+                type="color"
+                value={layer.borderColor || "#ffffff"}
+                onChange={(e) => onUpdate({ ...layer, borderColor: e.target.value })}
+                bg="#36393f"
+                borderColor="#202225"
+                borderRadius={0}
+                h="40px"
+              />
+            </FormControl>
+            <FormControl>
+              <FormLabel color="#B9BBBE" fontSize="sm">Raggio Bordo (%)</FormLabel>
+              <Input
+                type="number"
+                value={layer.borderRadius || 50}
+                onChange={(e) => onUpdate({ ...layer, borderRadius: Number(e.target.value) })}
+                bg="#36393f"
+                borderColor="#202225"
+                color="#ffffff"
+                borderRadius={0}
+                min={0}
+                max={100}
+              />
+            </FormControl>
+          </Grid>
+        </>
+      )}
+
+      {layer.type !== "background" && (
+        <>
+          <Divider borderColor="#36393f" />
+          <Button
+            colorScheme="red"
+            variant="solid"
+            onClick={onDelete}
+            leftIcon={<FaTrash />}
+            borderRadius={0}
+          >
+            Elimina Layer
+          </Button>
+        </>
+      )}
+    </VStack>
+  );
+};
+
+// Layer List Component
+const LayerList = ({ layers, selectedId, onSelect, onMoveUp, onMoveDown }) => {
+  return (
+    <VStack spacing={1} p={2} align="stretch">
+      <Text color="#72767d" fontSize="sm" px={2} py={1}>Layer (in ordine di rendering)</Text>
+      {[...layers].reverse().map((layer, index) => {
+        const originalIndex = layers.length - 1 - index;
+        return (
+          <MotionFlex
+            key={layer.id}
+            p={2}
+            bg={selectedId === layer.id ? "#5865F2" : "#2f3136"}
+            color="#ffffff"
+            borderRadius={0}
+            cursor="pointer"
+            onClick={() => onSelect(layer.id)}
+            align="center"
+            justify="space-between"
+            whileHover={{ bg: selectedId === layer.id ? "#4752c4" : "#36393f" }}
+          >
+            <Flex align="center">
+              <Icon as={layer.visible ? FaEye : FaEyeSlash} mr={2} boxSize={3} color="#B9BBBE" />
+              <Text fontSize="sm">{layer.type} ({layer.id})</Text>
+            </Flex>
+            {layer.type !== "background" && (
+              <Flex>
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  color="#B9BBBE"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onMoveUp(originalIndex);
+                  }}
+                  isDisabled={originalIndex === layers.length - 1}
+                  borderRadius={0}
+                >
+                  ↑
+                </Button>
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  color="#B9BBBE"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onMoveDown(originalIndex);
+                  }}
+                  isDisabled={originalIndex === 0}
+                  borderRadius={0}
+                >
+                  ↓
+                </Button>
+              </Flex>
+            )}
+          </MotionFlex>
+        );
+      })}
+    </VStack>
+  );
+};
+
+const CardEditor = ({ cardConfig, setCardConfig, isLeave }) => {
+  const [selectedLayerId, setSelectedLayerId] = useState(null);
+
+  const updateLayer = (updatedLayer) => {
+    setCardConfig({
+      ...cardConfig,
+      layers: cardConfig.layers.map(layer =>
+        layer.id === updatedLayer.id ? updatedLayer : layer
+      )
+    });
+  };
+
+  const deleteLayer = () => {
+    if (!selectedLayerId) return;
+    setCardConfig({
+      ...cardConfig,
+      layers: cardConfig.layers.filter(layer => layer.id !== selectedLayerId)
+    });
+    setSelectedLayerId(null);
+  };
+
+  const addLayer = (type) => {
+    const newLayer = {
+      id: `${type}-${Date.now()}`,
+      type,
+      visible: true,
+      x: 100,
+      y: 100,
+      width: type === "text" ? 300 : 100,
+      height: type === "text" ? 40 : 100,
+      ...(type === "text" ? {
+        text: "Nuovo testo",
+        fontSize: 24,
+        fontWeight: "normal",
+        color: "#ffffff",
+        textAlign: "center"
+      } : {}),
+      ...(type === "avatar" ? {
+        borderWidth: 4,
+        borderColor: "#ffffff",
+        borderRadius: 50
+      } : {}),
+    };
+    setCardConfig({
+      ...cardConfig,
+      layers: [...cardConfig.layers, newLayer]
+    });
+    setSelectedLayerId(newLayer.id);
+  };
+
+  const moveLayerUp = (index) => {
+    if (index >= cardConfig.layers.length - 1) return;
+    const newLayers = [...cardConfig.layers];
+    [newLayers[index], newLayers[index + 1]] = [newLayers[index + 1], newLayers[index]];
+    setCardConfig({ ...cardConfig, layers: newLayers });
+  };
+
+  const moveLayerDown = (index) => {
+    if (index <= 0) return;
+    const newLayers = [...cardConfig.layers];
+    [newLayers[index], newLayers[index - 1]] = [newLayers[index - 1], newLayers[index]];
+    setCardConfig({ ...cardConfig, layers: newLayers });
+  };
+
+  const handleLayerDrag = (layerId, position) => {
+    updateLayer({
+      ...cardConfig.layers.find(l => l.id === layerId),
+      ...position
+    });
+  };
+
+  const selectedLayer = cardConfig.layers.find(l => l.id === selectedLayerId);
+
+  return (
+    <Grid templateColumns="2fr 1fr 1fr" gap={4} h="600px">
+      {/* Canvas Preview */}
+      <GridItem bg="#2f3136" borderRadius={0} p={4}>
+        <Heading size="sm" color="#ffffff" mb={4}>Anteprima</Heading>
+        <CardCanvasPreview
+          cardConfig={cardConfig}
+          isLeave={isLeave}
+          selectedLayerId={selectedLayerId}
+          onLayerSelect={setSelectedLayerId}
+          onLayerDrag={handleLayerDrag}
+        />
+      </GridItem>
+
+      {/* Layer List */}
+      <GridItem bg="#2f3136" borderRadius={0} overflowY="auto">
+        <LayerList
+          layers={cardConfig.layers}
+          selectedId={selectedLayerId}
+          onSelect={setSelectedLayerId}
+          onMoveUp={moveLayerUp}
+          onMoveDown={moveLayerDown}
+        />
+        <VStack spacing={2} p={2}>
+          <Divider borderColor="#36393f" />
+          <Text color="#72767d" fontSize="sm">Aggiungi Layer</Text>
+          <Button
+            leftIcon={<FaPlus />}
+            size="sm"
+            onClick={() => addLayer("image")}
+            bg="#36393f"
+            color="#ffffff"
+            borderRadius={0}
+            w="full"
+            _hover={{ bg: "#40444b" }}
+          >
+            Immagine
+          </Button>
+          <Button
+            leftIcon={<FaPlus />}
+            size="sm"
+            onClick={() => addLayer("text")}
+            bg="#36393f"
+            color="#ffffff"
+            borderRadius={0}
+            w="full"
+            _hover={{ bg: "#40444b" }}
+          >
+            Testo
+          </Button>
+          <Button
+            leftIcon={<FaPlus />}
+            size="sm"
+            onClick={() => addLayer("avatar")}
+            bg="#36393f"
+            color="#ffffff"
+            borderRadius={0}
+            w="full"
+            _hover={{ bg: "#40444b" }}
+          >
+            Avatar
+          </Button>
+        </VStack>
+      </GridItem>
+
+      {/* Layer Editor */}
+      <GridItem bg="#2f3136" borderRadius={0} overflowY="auto">
+        <LayerEditor
+          layer={selectedLayer}
+          onUpdate={updateLayer}
+          onDelete={deleteLayer}
+        />
+      </GridItem>
+    </Grid>
   );
 };
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState("messages");
+  const [activeTab, setActiveTab] = useState("home");
   const [guilds, setGuilds] = useState([]);
-  const [channels, setChannels] = useState({});
+  const [channels, setChannels] = useState([]);
   const [loading, setLoading] = useState(true);
   const [configs, setConfigs] = useState([]);
   const { isOpen, onOpen, onClose } = useDisclosure();
@@ -205,15 +815,11 @@ export default function App() {
   const [welcomeChannel, setWelcomeChannel] = useState("");
   const [welcomeMessage, setWelcomeMessage] = useState("");
   const [welcomeEnabled, setWelcomeEnabled] = useState(true);
-  const [welcomeImageUrl, setWelcomeImageUrl] = useState("");
-  const [welcomeCardTitle, setWelcomeCardTitle] = useState("");
-  const [welcomeCardSubtitle, setWelcomeCardSubtitle] = useState("");
+  const [welcomeCard, setWelcomeCard] = useState(getDefaultWelcomeCard());
   const [leaveChannel, setLeaveChannel] = useState("");
   const [leaveMessage, setLeaveMessage] = useState("");
   const [leaveEnabled, setLeaveEnabled] = useState(true);
-  const [leaveImageEnabled, setLeaveImageEnabled] = useState(true);
-  const [leaveCardTitle, setLeaveCardTitle] = useState("");
-  const [leaveCardSubtitle, setLeaveCardSubtitle] = useState("");
+  const [leaveCard, setLeaveCard] = useState(getDefaultLeaveCard());
 
   // TTS form state
   const [ttsSourceChannel, setTtsSourceChannel] = useState("");
@@ -222,14 +828,6 @@ export default function App() {
   const [ttsLanguage, setTtsLanguage] = useState("it");
   const [ttsPrefixes, setTtsPrefixes] = useState([",", ";", "!"]);
   const [voiceChannels, setVoiceChannels] = useState([]);
-
-  // Mock stats data
-  const stats = {
-    guildCount: 12,
-    userCount: 4520,
-    activeGuilds: 8,
-    messagesSent: 1250,
-  };
 
   const loadGuilds = useCallback(async () => {
     try {
@@ -245,12 +843,12 @@ export default function App() {
     }
   }, []);
 
-  const loadChannels = useCallback(async (guildId, type) => {
+  const loadChannels = useCallback(async (guildId) => {
     try {
       const res = await fetch(`${BOT_API_URL}/api/discord/guilds/${guildId}/channels`);
       if (!res.ok) throw new Error("Failed to load channels");
       const data = await res.json();
-      setChannels((prev) => ({ ...prev, [type]: data }));
+      setChannels(data);
     } catch (err) {
       console.error("Error loading channels:", err);
     }
@@ -267,7 +865,7 @@ export default function App() {
     }
   }, []);
 
-  const loadTtsConfig = useCallback(async (guildId) => {
+  const loadTTSConfig = useCallback(async (guildId) => {
     try {
       const res = await fetch(`${BOT_API_URL}/api/discord/tts-config/${guildId}`);
       if (!res.ok) throw new Error("Failed to load TTS config");
@@ -282,7 +880,7 @@ export default function App() {
     }
   }, []);
 
-  const saveTtsConfig = useCallback(async () => {
+  const saveTTSConfig = useCallback(async () => {
     if (!selectedGuild) {
       toast({
         title: "Errore",
@@ -351,26 +949,25 @@ export default function App() {
 
   useEffect(() => {
     if (selectedGuild) {
-      loadChannels(selectedGuild, "both");
+      loadChannels(selectedGuild);
       loadVoiceChannels(selectedGuild);
-      loadTtsConfig(selectedGuild);
+      loadTTSConfig(selectedGuild);
       const existingConfig = configs.find(c => c.guildId === selectedGuild);
       if (existingConfig) {
         setWelcomeChannel(existingConfig.welcomeChannelId || "");
         setWelcomeMessage(existingConfig.welcomeMessage || "");
         setWelcomeEnabled(existingConfig.welcomeEnabled !== false);
-        setWelcomeImageUrl(existingConfig.welcomeImageUrl || "");
-        setWelcomeCardTitle(existingConfig.welcomeCardTitle || "");
-        setWelcomeCardSubtitle(existingConfig.welcomeCardSubtitle || "");
+        setWelcomeCard(existingConfig.welcomeCard || getDefaultWelcomeCard());
         setLeaveChannel(existingConfig.leaveChannelId || "");
         setLeaveMessage(existingConfig.leaveMessage || "");
         setLeaveEnabled(existingConfig.leaveEnabled !== false);
-        setLeaveImageEnabled(existingConfig.leaveImageEnabled !== false);
-        setLeaveCardTitle(existingConfig.leaveCardTitle || "");
-        setLeaveCardSubtitle(existingConfig.leaveCardSubtitle || "");
+        setLeaveCard(existingConfig.leaveCard || getDefaultLeaveCard());
+      } else {
+        setWelcomeCard(getDefaultWelcomeCard());
+        setLeaveCard(getDefaultLeaveCard());
       }
     }
-  }, [selectedGuild, loadChannels, loadVoiceChannels, loadTtsConfig, configs]);
+  }, [selectedGuild, loadChannels, loadVoiceChannels, loadTTSConfig, configs]);
 
   const saveConfig = async () => {
     if (!selectedGuild) {
@@ -396,15 +993,11 @@ export default function App() {
           welcomeChannelId: welcomeChannel,
           welcomeMessage,
           welcomeEnabled,
-          welcomeImageUrl,
-          welcomeCardTitle,
-          welcomeCardSubtitle,
+          welcomeCard,
           leaveChannelId: leaveChannel,
           leaveMessage,
           leaveEnabled,
-          leaveImageEnabled,
-          leaveCardTitle,
-          leaveCardSubtitle,
+          leaveCard,
         }),
       });
 
@@ -544,7 +1137,7 @@ export default function App() {
                 <Box bg="#2f3136" border="1px" borderColor="#202225" borderRadius={0} p={6}>
                   <Stat>
                     <StatLabel color="#72767d">Servers</StatLabel>
-                    <StatNumber color="#5865F2">{stats.guildCount}</StatNumber>
+                    <StatNumber color="#5865F2">{guilds.length}</StatNumber>
                     <StatHelpText>
                       <Badge colorScheme="green" borderRadius={0}>+2 this week</Badge>
                     </StatHelpText>
@@ -554,7 +1147,7 @@ export default function App() {
                 <Box bg="#2f3136" border="1px" borderColor="#202225" borderRadius={0} p={6}>
                   <Stat>
                     <StatLabel color="#72767d">Total Users</StatLabel>
-                    <StatNumber color="#5865F2">{stats.userCount.toLocaleString()}</StatNumber>
+                    <StatNumber color="#5565F2">{guilds.reduce((acc, g) => acc + (g.memberCount || 0), 0).toLocaleString()}</StatNumber>
                     <StatHelpText>
                       <Badge colorScheme="blue" borderRadius={0}>Active</Badge>
                     </StatHelpText>
@@ -564,9 +1157,9 @@ export default function App() {
                 <Box bg="#2f3136" border="1px" borderColor="#202225" borderRadius={0} p={6}>
                   <Stat>
                     <StatLabel color="#72767d">Active Servers</StatLabel>
-                    <StatNumber color="#5865F2">{stats.activeGuilds}</StatNumber>
+                    <StatNumber color="#5565F2">{configs.length}</StatNumber>
                     <StatHelpText>
-                      <Badge colorScheme="purple" borderRadius={0}>{Math.round((stats.activeGuilds / stats.guildCount) * 100)}%</Badge>
+                      <Badge colorScheme="purple" borderRadius={0}>{configs.length > 0 ? Math.round((configs.length / guilds.length) * 100) : 0}%</Badge>
                     </StatHelpText>
                   </Stat>
                 </Box>
@@ -574,7 +1167,7 @@ export default function App() {
                 <Box bg="#2f3136" border="1px" borderColor="#202225" borderRadius={0} p={6}>
                   <Stat>
                     <StatLabel color="#72767d">Messages Sent</StatLabel>
-                    <StatNumber color="#5865F2">{stats.messagesSent.toLocaleString()}</StatNumber>
+                    <StatNumber color="#5565F2">1250</StatNumber>
                     <StatHelpText>
                       <Badge colorScheme="orange" borderRadius={0}>This month</Badge>
                     </StatHelpText>
@@ -638,7 +1231,7 @@ export default function App() {
                 <Heading size="2xl" mb={2} color="#ffffff">
                   Welcome & Leave Messages
                 </Heading>
-                <Text color="#72767d">Configure your welcome and leave messages</Text>
+                <Text color="#72767d">Configure your welcome and leave messages with a visual layer editor</Text>
               </Box>
 
               <Box bg="#2f3136" p={8} borderRadius={0} border="1px" borderColor="#202225">
@@ -667,23 +1260,32 @@ export default function App() {
                     </Select>
                   </FormControl>
 
-                  <Divider borderColor="#202225" />
+                  {selectedGuild && (
+                    <>
+                      <Divider borderColor="#36393f" />
 
-                  {/* Two-column layout: Form + Preview */}
-                  <Grid templateColumns="1fr 1fr" gap={8}>
-                    {/* Form Column */}
-                    <GridItem>
                       <Tabs colorScheme="blue" variant="enclosed">
-                        <TabList mb={4}>
+                        <TabList>
                           <Tab color="#ffffff" _selected={{ bg: "#5865F2", color: "#ffffff" }}>Welcome</Tab>
                           <Tab color="#ffffff" _selected={{ bg: "#5865F2", color: "#ffffff" }}>Leave</Tab>
                         </TabList>
 
                         <TabPanels>
-                          <TabPanel p={0}>
+                          <TabPanel p={0} pt={4}>
                             <VStack spacing={6} align="stretch">
+                              <FormControl display="flex" alignItems="center">
+                                <Checkbox
+                                  isChecked={welcomeEnabled}
+                                  onChange={(e) => setWelcomeEnabled(e.target.checked)}
+                                  mr={3}
+                                  colorScheme="blue"
+                                  size="lg"
+                                />
+                                <FormLabel mb={0} fontWeight="medium" color="#ffffff">Abilita Messaggio di Benvenuto</FormLabel>
+                              </FormControl>
+
                               <FormControl>
-                                <FormLabel fontWeight="bold" color="#ffffff">Channel</FormLabel>
+                                <FormLabel fontWeight="bold" color="#ffffff">Canale</FormLabel>
                                 <Select
                                   placeholder="Select a channel..."
                                   value={welcomeChannel}
@@ -698,7 +1300,7 @@ export default function App() {
                                     boxShadow: "0 0 0 1px #5865F2",
                                   }}
                                 >
-                                  {(channels.both || []).map((channel) => (
+                                  {(channels || []).map((channel) => (
                                     <option key={channel.id} value={channel.id}>
                                       #{channel.name}
                                     </option>
@@ -707,7 +1309,7 @@ export default function App() {
                               </FormControl>
 
                               <FormControl>
-                                <FormLabel fontWeight="bold" color="#ffffff">Message</FormLabel>
+                                <FormLabel fontWeight="bold" color="#ffffff">Messaggio Testuale (opzionale)</FormLabel>
                                 <Textarea
                                   placeholder="Use {user}, {username}, {guild}, {memberCount}"
                                   value={welcomeMessage}
@@ -716,7 +1318,7 @@ export default function App() {
                                   borderColor="#202225"
                                   borderRadius={0}
                                   color="#ffffff"
-                                  minH="120px"
+                                  minH="60px"
                                   _focus={{
                                     borderColor: "#5865F2",
                                     boxShadow: "0 0 0 1px #5865F2",
@@ -724,74 +1326,29 @@ export default function App() {
                                 />
                               </FormControl>
 
-                              <FormControl>
-                                <FormLabel fontWeight="bold" color="#ffffff">Background Image URL (optional)</FormLabel>
-                                <Input
-                                  placeholder="https://example.com/background.png"
-                                  value={welcomeImageUrl}
-                                  onChange={(e) => setWelcomeImageUrl(e.target.value)}
-                                  bg="#36393f"
-                                  borderColor="#202225"
-                                  borderRadius={0}
-                                  color="#ffffff"
-                                  _focus={{
-                                    borderColor: "#5865F2",
-                                    boxShadow: "0 0 0 1px #5865F2",
-                                  }}
-                                />
-                              </FormControl>
+                              <CardEditor
+                                cardConfig={welcomeCard}
+                                setCardConfig={setWelcomeCard}
+                                isLeave={false}
+                              />
+                            </VStack>
+                          </TabPanel>
 
-                              <FormControl>
-                                <FormLabel fontWeight="bold" color="#ffffff">Card Title (optional)</FormLabel>
-                                <Input
-                                  placeholder="Benvenuto {username}!"
-                                  value={welcomeCardTitle}
-                                  onChange={(e) => setWelcomeCardTitle(e.target.value)}
-                                  bg="#36393f"
-                                  borderColor="#202225"
-                                  borderRadius={0}
-                                  color="#ffffff"
-                                  _focus={{
-                                    borderColor: "#5865F2",
-                                    boxShadow: "0 0 0 1px #5865F2",
-                                  }}
-                                />
-                              </FormControl>
-
-                              <FormControl>
-                                <FormLabel fontWeight="bold" color="#ffffff">Card Subtitle (optional)</FormLabel>
-                                <Input
-                                  placeholder="Sei il {memberCount}° membro di {guild}!"
-                                  value={welcomeCardSubtitle}
-                                  onChange={(e) => setWelcomeCardSubtitle(e.target.value)}
-                                  bg="#36393f"
-                                  borderColor="#202225"
-                                  borderRadius={0}
-                                  color="#ffffff"
-                                  _focus={{
-                                    borderColor: "#5865F2",
-                                    boxShadow: "0 0 0 1px #5865F2",
-                                  }}
-                                />
-                              </FormControl>
-
+                          <TabPanel p={0} pt={4}>
+                            <VStack spacing={6} align="stretch">
                               <FormControl display="flex" alignItems="center">
                                 <Checkbox
-                                  isChecked={welcomeEnabled}
-                                  onChange={(e) => setWelcomeEnabled(e.target.checked)}
+                                  isChecked={leaveEnabled}
+                                  onChange={(e) => setLeaveEnabled(e.target.checked)}
                                   mr={3}
                                   colorScheme="blue"
                                   size="lg"
                                 />
-                                <FormLabel mb={0} fontWeight="medium" color="#ffffff">Enable Welcome Message</FormLabel>
+                                <FormLabel mb={0} fontWeight="medium" color="#ffffff">Abilita Messaggio di Uscita</FormLabel>
                               </FormControl>
-                            </VStack>
-                          </TabPanel>
 
-                          <TabPanel p={0}>
-                            <VStack spacing={6} align="stretch">
                               <FormControl>
-                                <FormLabel fontWeight="bold" color="#ffffff">Channel</FormLabel>
+                                <FormLabel fontWeight="bold" color="#ffffff">Canale</FormLabel>
                                 <Select
                                   placeholder="Select a channel..."
                                   value={leaveChannel}
@@ -806,7 +1363,7 @@ export default function App() {
                                     boxShadow: "0 0 0 1px #5865F2",
                                   }}
                                 >
-                                  {(channels.both || []).map((channel) => (
+                                  {(channels || []).map((channel) => (
                                     <option key={channel.id} value={channel.id}>
                                       #{channel.name}
                                     </option>
@@ -815,7 +1372,7 @@ export default function App() {
                               </FormControl>
 
                               <FormControl>
-                                <FormLabel fontWeight="bold" color="#ffffff">Message</FormLabel>
+                                <FormLabel fontWeight="bold" color="#ffffff">Messaggio Testuale (opzionale)</FormLabel>
                                 <Textarea
                                   placeholder="Use {user}, {username}, {guild}, {memberCount}"
                                   value={leaveMessage}
@@ -824,7 +1381,7 @@ export default function App() {
                                   borderColor="#202225"
                                   borderRadius={0}
                                   color="#ffffff"
-                                  minH="120px"
+                                  minH="60px"
                                   _focus={{
                                     borderColor: "#5865F2",
                                     boxShadow: "0 0 0 1px #5865F2",
@@ -832,140 +1389,56 @@ export default function App() {
                                 />
                               </FormControl>
 
-                              <FormControl>
-                                <FormLabel fontWeight="bold" color="#ffffff">Card Title (optional)</FormLabel>
-                                <Input
-                                  placeholder="Arrivederci {username}!"
-                                  value={leaveCardTitle}
-                                  onChange={(e) => setLeaveCardTitle(e.target.value)}
-                                  bg="#36393f"
-                                  borderColor="#202225"
-                                  borderRadius={0}
-                                  color="#ffffff"
-                                  _focus={{
-                                    borderColor: "#5865F2",
-                                    boxShadow: "0 0 0 1px #5865F2",
-                                  }}
-                                />
-                              </FormControl>
-
-                              <FormControl>
-                                <FormLabel fontWeight="bold" color="#ffffff">Card Subtitle (optional)</FormLabel>
-                                <Input
-                                  placeholder="Ci mancherai!"
-                                  value={leaveCardSubtitle}
-                                  onChange={(e) => setLeaveCardSubtitle(e.target.value)}
-                                  bg="#36393f"
-                                  borderColor="#202225"
-                                  borderRadius={0}
-                                  color="#ffffff"
-                                  _focus={{
-                                    borderColor: "#5865F2",
-                                    boxShadow: "0 0 0 1px #5865F2",
-                                  }}
-                                />
-                              </FormControl>
-
-                              <FormControl display="flex" alignItems="center">
-                                <Checkbox
-                                  isChecked={leaveImageEnabled}
-                                  onChange={(e) => setLeaveImageEnabled(e.target.checked)}
-                                  mr={3}
-                                  colorScheme="blue"
-                                  size="lg"
-                                />
-                                <FormLabel mb={0} fontWeight="medium" color="#ffffff">
-                                  Enable Leave Card (Black & White)
-                                </FormLabel>
-                              </FormControl>
-
-                              <FormControl display="flex" alignItems="center">
-                                <Checkbox
-                                  isChecked={leaveEnabled}
-                                  onChange={(e) => setLeaveEnabled(e.target.checked)}
-                                  mr={3}
-                                  colorScheme="blue"
-                                  size="lg"
-                                />
-                                <FormLabel mb={0} fontWeight="medium" color="#ffffff">Enable Leave Message</FormLabel>
-                              </FormControl>
+                              <CardEditor
+                                cardConfig={leaveCard}
+                                setCardConfig={setLeaveCard}
+                                isLeave={true}
+                              />
                             </VStack>
                           </TabPanel>
                         </TabPanels>
                       </Tabs>
-                    </GridItem>
 
-                    {/* Preview Column */}
-                    <GridItem>
-                      <Box>
-                        <Heading size="md" mb={4} color="#ffffff">
-                          Live Preview
-                        </Heading>
-                        <Tabs colorScheme="blue" variant="enclosed">
-                          <TabList mb={4}>
-                            <Tab color="#ffffff" _selected={{ bg: "#5865F2", color: "#ffffff" }}>Welcome Card</Tab>
-                            <Tab color="#ffffff" _selected={{ bg: "#5865F2", color: "#ffffff" }}>Leave Card</Tab>
-                          </TabList>
+                      <Divider borderColor="#36393f" />
 
-                          <TabPanels>
-                            <TabPanel p={0}>
-                              <CardPreview
-                                isLeave={false}
-                                imageUrl={welcomeImageUrl}
-                                title={welcomeCardTitle}
-                                subtitle={welcomeCardSubtitle}
-                              />
-                            </TabPanel>
-                            <TabPanel p={0}>
-                              <CardPreview
-                                isLeave={true}
-                                imageUrl={welcomeImageUrl}
-                                title={leaveCardTitle}
-                                subtitle={leaveCardSubtitle}
-                              />
-                            </TabPanel>
-                          </TabPanels>
-                        </Tabs>
-                      </Box>
-                    </GridItem>
-                  </Grid>
-
-                  <Button
-                    colorScheme="blue"
-                    onClick={saveConfig}
-                    size="lg"
-                    borderRadius={0}
-                    bg="#5865F2"
-                    _hover={{
-                      bg: "#4752c4",
-                    }}
-                  >
-                    Save Configuration
-                  </Button>
+                      <Button
+                        colorScheme="blue"
+                        onClick={saveConfig}
+                        size="lg"
+                        borderRadius={0}
+                        bg="#5865F2"
+                        _hover={{
+                          bg: "#4752c4",
+                        }}
+                      >
+                        Salva Configurazione
+                      </Button>
+                    </>
+                  )}
                 </VStack>
               </Box>
 
               {/* Variables Info */}
               <Box bg="#2f3136" p={8} borderRadius={0} border="1px" borderColor="#202225">
                 <Heading size="md" mb={6} color="#ffffff">
-                  Available Variables
+                  Variabili Disponibili
                 </Heading>
                 <Grid templateColumns={{ base: "1fr", md: "1fr 1fr" }} gap={4}>
                   <Box bg="#36393f" p={4} borderRadius={0} border="1px" borderColor="#202225">
                     <Text fontWeight="bold" color="#5865F2">{"{user}"}</Text>
-                    <Text color="#72767d">User mention (@username)</Text>
+                    <Text color="#72767d">Menzione utente (@username)</Text>
                   </Box>
                   <Box bg="#36393f" p={4} borderRadius={0} border="1px" borderColor="#202225">
                     <Text fontWeight="bold" color="#5865F2">{"{username}"}</Text>
-                    <Text color="#72767d">Username without mention</Text>
+                    <Text color="#72767d">Nome utente senza menzione</Text>
                   </Box>
                   <Box bg="#36393f" p={4} borderRadius={0} border="1px" borderColor="#202225">
                     <Text fontWeight="bold" color="#5865F2">{"{guild}"}</Text>
-                    <Text color="#72767d">Server name</Text>
+                    <Text color="#72767d">Nome server</Text>
                   </Box>
                   <Box bg="#36393f" p={4} borderRadius={0} border="1px" borderColor="#202225">
                     <Text fontWeight="bold" color="#5865F2">{"{memberCount}"}</Text>
-                    <Text color="#72767d">Number of members</Text>
+                    <Text color="#72767d">Numero di membri</Text>
                   </Box>
                 </Grid>
               </Box>
@@ -1013,128 +1486,146 @@ export default function App() {
                     </Select>
                   </FormControl>
 
-                  <Divider borderColor="#202225" />
+                  {selectedGuild && (
+                    <>
+                      <Divider borderColor="#36393f" />
 
-                  <Box>
-                    <Heading size="md" mb={4} color="#ffffff">
-                      Canali
-                    </Heading>
-                    <VStack spacing={6} align="stretch">
-                      <FormControl>
-                        <FormLabel fontWeight="bold" color="#ffffff">
-                          Canale testuale (dove leggere i messaggi)
-                        </FormLabel>
-                        <Select
-                          placeholder="Select a channel..."
-                          value={ttsSourceChannel}
-                          onChange={(e) => setTtsSourceChannel(e.target.value)}
-                          bg="#36393f"
-                          borderColor="#202225"
-                          borderRadius={0}
-                          color="#ffffff"
-                          isDisabled={!selectedGuild}
-                          _focus={{
-                            borderColor: "#5865F2",
-                            boxShadow: "0 0 0 1px #5865F2",
-                          }}
-                        >
-                          {(channels.both || []).map((channel) => (
-                            <option key={channel.id} value={channel.id}>
-                              #{channel.name}
-                            </option>
-                          ))}
-                        </Select>
-                      </FormControl>
+                      <Box>
+                        <Heading size="md" mb={4} color="#ffffff">
+                          Canali
+                        </Heading>
+                        <VStack spacing={6} align="stretch">
+                          <FormControl>
+                            <FormLabel fontWeight="bold" color="#ffffff">
+                              Canale testuale (dove leggere i messaggi)
+                            </FormLabel>
+                            <Select
+                              placeholder="Select a channel..."
+                              value={ttsSourceChannel}
+                              onChange={(e) => setTtsSourceChannel(e.target.value)}
+                              bg="#36393f"
+                              borderColor="#202225"
+                              borderRadius={0}
+                              color="#ffffff"
+                              isDisabled={!selectedGuild}
+                              _focus={{
+                                borderColor: "#5865F2",
+                                boxShadow: "0 0 0 1px #5865F2",
+                              }}
+                            >
+                              {(channels || []).map((channel) => (
+                                <option key={channel.id} value={channel.id}>
+                                  #{channel.name}
+                                </option>
+                              ))}
+                            </Select>
+                          </FormControl>
 
-                      <FormControl>
-                        <FormLabel fontWeight="bold" color="#ffffff">
-                          Canale vocale (dove il bot entra)
-                        </FormLabel>
-                        <Select
-                          placeholder="Select a channel..."
-                          value={ttsVoiceChannel}
-                          onChange={(e) => setTtsVoiceChannel(e.target.value)}
-                          bg="#36393f"
-                          borderColor="#202225"
-                          borderRadius={0}
-                          color="#ffffff"
-                          isDisabled={!selectedGuild}
-                          _focus={{
-                            borderColor: "#5865F2",
-                            boxShadow: "0 0 0 1px #5865F2",
-                          }}
-                        >
-                          {voiceChannels.map((channel) => (
-                            <option key={channel.id} value={channel.id}>
-                              🔊 {channel.name}
-                            </option>
-                          ))}
-                        </Select>
-                      </FormControl>
-                    </VStack>
-                  </Box>
+                          <FormControl>
+                            <FormLabel fontWeight="bold" color="#ffffff">
+                              Canale vocale (dove il bot entra)
+                            </FormLabel>
+                            <Select
+                              placeholder="Select a channel..."
+                              value={ttsVoiceChannel}
+                              onChange={(e) => setTtsVoiceChannel(e.target.value)}
+                              bg="#36393f"
+                              borderColor="#202225"
+                              borderRadius={0}
+                              color="#ffffff"
+                              isDisabled={!selectedGuild}
+                              _focus={{
+                                borderColor: "#5865F2",
+                                boxShadow: "0 0 0 1px #5865F2",
+                              }}
+                            >
+                              {voiceChannels.map((channel) => (
+                                <option key={channel.id} value={channel.id}>
+                                  🔊 {channel.name}
+                                </option>
+                              ))}
+                            </Select>
+                          </FormControl>
+                        </VStack>
+                      </Box>
 
-                  <Divider borderColor="#202225" />
+                      <Divider borderColor="#36393f" />
 
-                  <Box>
-                    <Heading size="md" mb={4} color="#ffffff">
-                      Prefissi
-                    </Heading>
-                    <VStack spacing={6} align="stretch">
-                      <Text color="#72767d" fontSize="sm">
-                        I prefissi che attivano il TTS (separati da virgola)
-                      </Text>
-                      <FormControl>
-                        <Input
-                          placeholder=". , , !"
-                          value={ttsPrefixes.join(", ")}
-                          onChange={(e) => {
-                            const prefixes = e.target.value
-                              .split(",")
-                              .map((p) => p.trim())
-                              .filter((p) => p.length > 0);
-                            setTtsPrefixes(prefixes);
-                          }}
-                          bg="#36393f"
-                          borderColor="#202225"
-                          borderRadius={0}
-                          color="#ffffff"
-                          _focus={{
-                            borderColor: "#5865F2",
-                            boxShadow: "0 0 0 1px #5865F2",
-                          }}
-                        />
-                      </FormControl>
-                    </VStack>
-                  </Box>
+                      <Box>
+                        <Heading size="md" mb={4} color="#ffffff">
+                          Impostazioni TTS
+                        </Heading>
+                        <VStack spacing={6} align="stretch">
+                          <FormControl display="flex" alignItems="center">
+                            <Checkbox
+                              isChecked={ttsEnabled}
+                              onChange={(e) => setTtsEnabled(e.target.checked)}
+                              mr={3}
+                              colorScheme="blue"
+                              size="lg"
+                            />
+                            <FormLabel mb={0} fontWeight="medium" color="#ffffff">Abilita TTS</FormLabel>
+                          </FormControl>
 
-                  <Divider borderColor="#202225" />
+                          <FormControl>
+                            <FormLabel fontWeight="bold" color="#ffffff">Lingua</FormLabel>
+                            <Select
+                              value={ttsLanguage}
+                              onChange={(e) => setTtsLanguage(e.target.value)}
+                              bg="#36393f"
+                              borderColor="#202225"
+                              borderRadius={0}
+                              color="#ffffff"
+                              _focus={{
+                                borderColor: "#5865F2",
+                                boxShadow: "0 0 0 1px #5865F2",
+                              }}
+                            >
+                              <option value="it">Italiano</option>
+                              <option value="en">Inglese</option>
+                              <option value="es">Spagnolo</option>
+                              <option value="fr">Francese</option>
+                              <option value="de">Tedesco</option>
+                            </Select>
+                          </FormControl>
 
-                  <FormControl display="flex" alignItems="center">
-                    <Checkbox
-                      isChecked={ttsEnabled}
-                      onChange={(e) => setTtsEnabled(e.target.checked)}
-                      mr={3}
-                      colorScheme="blue"
-                      size="lg"
-                    />
-                    <FormLabel mb={0} fontWeight="medium" color="#ffffff">
-                      Abilita TTS automatico
-                    </FormLabel>
-                  </FormControl>
+                          <FormControl>
+                            <FormLabel fontWeight="bold" color="#ffffff">
+                              Prefissi (separati da virgola)
+                            </FormLabel>
+                            <Input
+                              value={ttsPrefixes.join(", ")}
+                              onChange={(e) => setTtsPrefixes(e.target.value.split(",").map(p => p.trim()).filter(p => p))}
+                              bg="#36393f"
+                              borderColor="#202225"
+                              borderRadius={0}
+                              color="#ffffff"
+                              placeholder=", ; !"
+                              _focus={{
+                                borderColor: "#5865F2",
+                                boxShadow: "0 0 0 1px #5865F2",
+                              }}
+                            />
+                          </FormControl>
+                        </VStack>
+                      </Box>
 
-                  <Button
-                    colorScheme="blue"
-                    onClick={saveTtsConfig}
-                    size="lg"
-                    borderRadius={0}
-                    bg="#5865F2"
-                    _hover={{
-                      bg: "#4752c4",
-                    }}
-                  >
-                    Salva Configurazione
-                  </Button>
+                      <Divider borderColor="#36393f" />
+
+                      <Button
+                        colorScheme="blue"
+                        onClick={saveTTSConfig}
+                        size="lg"
+                        borderRadius={0}
+                        bg="#5865F2"
+                        _hover={{
+                          bg: "#4752c4",
+                        }}
+                      >
+                        Salva Configurazione TTS
+                      </Button>
+                    </>
+                  )}
                 </VStack>
               </Box>
             </VStack>
@@ -1150,108 +1641,18 @@ export default function App() {
             <VStack spacing={8} align="stretch">
               <Box>
                 <Heading size="2xl" mb={2} color="#ffffff">
-                  Settings
+                  Impostazioni
                 </Heading>
-                <Text color="#72767d">General bot and dashboard settings</Text>
+                <Text color="#72767d">Configura le impostazioni generali</Text>
               </Box>
 
               <Box bg="#2f3136" p={8} borderRadius={0} border="1px" borderColor="#202225">
-                <VStack spacing={6} align="stretch">
-                  <Text fontSize="lg" fontWeight="bold" color="#ffffff">
-                    Coming Soon!
-                  </Text>
-                  <Text color="#72767d">
-                    Settings page is under construction. Check back later!
-                  </Text>
-                </VStack>
+                <Text color="#72767d">Nessuna impostazione disponibile al momento.</Text>
               </Box>
             </VStack>
           </MotionBox>
         )}
       </Box>
-
-      {/* Preview Drawer */}
-      <Drawer isOpen={isOpen} placement="left" onClose={onClose} size="md">
-        <DrawerOverlay />
-        <DrawerContent bg="#202225" borderRight="1px" borderColor="#202225">
-          <DrawerHeader borderBottom="1px" borderColor="#202225">
-            <Flex align="center">
-              <Avatar
-                src="/celestial-logo-slim.png"
-                size="md"
-                name="Celestial"
-                mr={3}
-                border="2px solid"
-                borderColor="#5865F2"
-              />
-              <Heading size="lg" color="#ffffff">
-                Bot Stats Preview
-              </Heading>
-            </Flex>
-          </DrawerHeader>
-
-          <DrawerBody>
-            <VStack spacing={6} pt={4}>
-              <Box bg="#2f3136" border="1px" borderColor="#202225" w="full" borderRadius={0} p={6}>
-                <Stat>
-                  <StatLabel color="#72767d">
-                    <Flex align="center">
-                      <Icon as={FaServer} mr={2} />
-                      Total Servers
-                    </Flex>
-                  </StatLabel>
-                  <StatNumber color="#5865F2">{stats.guildCount}</StatNumber>
-                </Stat>
-              </Box>
-
-              <Box bg="#2f3136" border="1px" borderColor="#202225" w="full" borderRadius={0} p={6}>
-                <Stat>
-                  <StatLabel color="#72767d">
-                    <Flex align="center">
-                      <Icon as={FaUsers} mr={2} />
-                      Total Users
-                    </Flex>
-                  </StatLabel>
-                  <StatNumber color="#5865F2">{stats.userCount.toLocaleString()}</StatNumber>
-                </Stat>
-              </Box>
-
-              <Box bg="#2f3136" border="1px" borderColor="#202225" w="full" borderRadius={0} p={6}>
-                <Stat>
-                  <StatLabel color="#72767d">
-                    <Flex align="center">
-                      <Icon as={FaChartLine} mr={2} />
-                      Active Rate
-                    </Flex>
-                  </StatLabel>
-                  <StatNumber color="#5865F2">
-                    {Math.round((stats.activeGuilds / stats.guildCount) * 100)}%
-                  </StatNumber>
-                </Stat>
-              </Box>
-
-              <Box bg="#2f3136" border="1px" borderColor="#202225" w="full" borderRadius={0} p={6}>
-                <Stat>
-                  <StatLabel color="#72767d">
-                    <Flex align="center">
-                      <Icon as={FaDiscord} mr={2} />
-                      Active Features
-                    </Flex>
-                  </StatLabel>
-                  <StatNumber color="#5865F2">2</StatNumber>
-                  <StatHelpText color="#72767d">Welcome & Leave</StatHelpText>
-                </Stat>
-              </Box>
-
-              <Divider borderColor="#202225" />
-
-              <Text color="#72767d" fontSize="sm" textAlign="center">
-                Stats are simulated for preview
-              </Text>
-            </VStack>
-          </DrawerBody>
-        </DrawerContent>
-      </Drawer>
     </Flex>
   );
 }
