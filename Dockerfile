@@ -16,8 +16,8 @@ COPY . .
 # and let pnpm regenerate lockfile if platform entries differ
 RUN pnpm install --no-frozen-lockfile
 
-# Install dashboard dependencies and build
-RUN cd dashboard && npm install && npm run build
+# Build dashboard with pnpm (dependencies already installed above)
+RUN pnpm --filter ./dashboard run build
 
 # Build the api-server bundle
 RUN pnpm --filter @workspace/api-server run build
