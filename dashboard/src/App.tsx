@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   Home,
   MessageSquare,
@@ -23,9 +23,12 @@ import {
   Layers,
   CheckSquare,
   X,
-  Play
+  Play,
+  LogOut
 } from "lucide-react";
 import { BotStatus, CardConfig, CardLayer, LogEntry, ModuleConfig, DeletedModifiedLog } from "./types";
+import Login from "./pages/Login";
+import { isAuthenticated, getAccessToken, removeAccessToken } from "./config/discord";
 
 // Default local variables for replacing preset text in live preview
 const replaceVars = (text: string, mockUsername = "N0ctura", memberCount = 412) => {
@@ -296,6 +299,26 @@ const CardCanvasPreview: React.FC<CardCanvasPreviewProps> = ({
 
 // Main App
 export default function App() {
+  const [authenticated, setAuthenticated] = useState<boolean>(isAuthenticated());
+
+  const handleAuthenticated = () => {
+    setAuthenticated(true);
+  };
+
+  const handleLogout = () => {
+    removeAccessToken();
+    setAuthenticated(false);
+  };
+
+  if (!authenticated) {
+    return <Login onAuthenticated={handleAuthenticated} />;
+  }
+
+  return <Dashboard onLogout={handleLogout} />;
+}
+
+// Dashboard component (rendered only when authenticated)
+function Dashboard({ onLogout }: { onLogout: () => void }) {
   const [activeTab, setActiveTab] = useState<"home" | "welcome" | "leave" | "autorole" | "messages" | "voice" | "logs">("home");
   
   // Server Status & Logs state
@@ -378,22 +401,34 @@ export default function App() {
     }, 3500);
   };
 
+  // Helper: build auth headers for API calls
+  const authHeaders = (): Record<string, string> => {
+    const token = getAccessToken();
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  };
+
   // Fetch initial data from server
   const loadData = useCallback(async () => {
     try {
-      const statusRes = await fetch("/api/bot/status");
+      const statusRes = await fetch("/api/bot/status", {
+        headers: authHeaders(),
+      });
       if (statusRes.ok) {
         const data = await statusRes.json();
         setBotStatus(data);
       }
       
-      const configRes = await fetch("/api/bot/config");
+      const configRes = await fetch("/api/bot/config", {
+        headers: authHeaders(),
+      });
       if (configRes.ok) {
         const data = await configRes.json();
         setConfigs(data);
       }
 
-      const logsRes = await fetch("/api/bot/logs/deleted-modified");
+      const logsRes = await fetch("/api/bot/logs/deleted-modified", {
+        headers: authHeaders(),
+      });
       if (logsRes.ok) {
         const data = await logsRes.json();
         setDeletedModifiedLogs(data);
@@ -421,7 +456,7 @@ export default function App() {
     try {
       const res = await fetch(`/api/bot/config/${section}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify(payload)
       });
       if (res.ok) {
@@ -432,7 +467,9 @@ export default function App() {
         }));
         showToast(message, "success");
         // Reload status to fetch fresh log entries
-        const statusRes = await fetch("/api/bot/status");
+        const statusRes = await fetch("/api/bot/status", {
+          headers: authHeaders(),
+        });
         if (statusRes.ok) {
           const freshStatus = await statusRes.json();
           setBotStatus(prev => ({ ...prev, logs: freshStatus.logs }));
@@ -604,7 +641,7 @@ export default function App() {
       
       // Update logs in server
       try {
-        await fetch("/api/bot/status");
+        await fetch("/api/bot/status", { headers: authHeaders() });
         await loadData();
       } catch (err) {
         console.error(err);
@@ -614,7 +651,10 @@ export default function App() {
 
   const handleClearLogs = async () => {
     try {
-      const res = await fetch("/api/bot/logs/clear", { method: "POST" });
+      const res = await fetch("/api/bot/logs/clear", {
+        method: "POST",
+        headers: authHeaders(),
+      });
       if (res.ok) {
         const data = await res.json();
         setBotStatus(prev => ({ ...prev, logs: data.logs }));
@@ -627,14 +667,17 @@ export default function App() {
 
   const handleSimulateDeletedModified = async () => {
     try {
-      const res = await fetch("/api/bot/logs/deleted-modified/simulate", { method: "POST" });
+      const res = await fetch("/api/bot/logs/deleted-modified/simulate", {
+        method: "POST",
+        headers: authHeaders(),
+      });
       if (res.ok) {
         const data = await res.json();
         setDeletedModifiedLogs(data.logs);
         showToast(`Simulazione riuscita: Messaggio ${data.log.type === "deleted" ? "Eliminato" : "Modificato"}!`);
         
         // Refresh console log list as well
-        const statusRes = await fetch("/api/bot/status");
+        const statusRes = await fetch("/api/bot/status", { headers: authHeaders() });
         if (statusRes.ok) {
           const freshStatus = await statusRes.json();
           setBotStatus(prev => ({ ...prev, logs: freshStatus.logs }));
@@ -648,7 +691,10 @@ export default function App() {
 
   const handleClearDeletedModifiedLogs = async () => {
     try {
-      const res = await fetch("/api/bot/logs/deleted-modified/clear", { method: "POST" });
+      const res = await fetch("/api/bot/logs/deleted-modified/clear", {
+        method: "POST",
+        headers: authHeaders(),
+      });
       if (res.ok) {
         const data = await res.json();
         setDeletedModifiedLogs(data.logs);
@@ -853,6 +899,14 @@ export default function App() {
             <span className="text-xs font-mono font-bold text-neutral-300 bg-neutral-950/30 px-3 py-1.5 rounded-lg border border-neutral-800">
               {botStatus.platform} Host
             </span>
+            <button
+              onClick={onLogout}
+              title="Logout"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-neutral-800 hover:bg-rose-900/40 hover:text-rose-400 text-neutral-400 rounded-lg text-xs font-semibold transition-colors border border-neutral-700 hover:border-rose-800/50"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span>Logout</span>
+            </button>
           </div>
         </header>
 
