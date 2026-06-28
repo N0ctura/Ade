@@ -110,6 +110,8 @@ export interface GuildWelcomeLeaveConfig {
   leaveMessage?: string;
   leaveEnabled?: boolean;
   leaveCard?: CardConfig;
+  autoroleEnabled?: boolean;
+  autoroleRoleId?: string;
 }
 
 export interface GuildTTSConfig {

@@ -52,6 +52,7 @@ import {
   FaTrash,
   FaArrowsAlt,
   FaEyeSlash,
+  FaUserTag,
 } from "react-icons/fa";
 
 // Use relative path so it works both in dev and production
@@ -136,14 +137,31 @@ const replaceVars = (text, mockUsername = "TestUser", memberCount = 123) => {
     .replace(/{memberCount}/g, memberCount);
 };
 
+const SidebarCategory = ({ label, children }) => (
+  <VStack spacing={1} align="stretch" mb={2}>
+    <Text
+      fontSize="xs"
+      fontWeight="bold"
+      color="#72767d"
+      textTransform="uppercase"
+      letterSpacing="0.05em"
+      px={4}
+      py={1}
+    >
+      {label}
+    </Text>
+    {children}
+  </VStack>
+);
+
 const SidebarItem = ({ icon, label, isActive, onClick }) => (
   <MotionFlex
     as="button"
     w="full"
     align="center"
-    py={3}
+    py={2}
     px={4}
-    borderRadius={0}
+    borderRadius={4}
     cursor="pointer"
     bg={isActive ? "#5865F2" : "transparent"}
     color={isActive ? "#ffffff" : "#B9BBBE"}
@@ -156,9 +174,10 @@ const SidebarItem = ({ icon, label, isActive, onClick }) => (
     onClick={onClick}
     whileHover={{ scale: 1.01 }}
     whileTap={{ scale: 0.99 }}
+    mx={2}
   >
-    <Icon as={icon} mr={3} boxSize={5} />
-    <Text>{label}</Text>
+    <Icon as={icon} mr={3} boxSize={4} />
+    <Text fontSize="sm">{label}</Text>
   </MotionFlex>
 );
 
@@ -823,6 +842,9 @@ export default function App() {
   const [leaveMessage, setLeaveMessage] = useState("");
   const [leaveEnabled, setLeaveEnabled] = useState(true);
   const [leaveCard, setLeaveCard] = useState(getDefaultLeaveCard());
+  const [autoroleEnabled, setAutoroleEnabled] = useState(false);
+  const [autoroleRoleId, setAutoroleRoleId] = useState("");
+  const [roles, setRoles] = useState([]);
 
   // TTS form state
   const [ttsSourceChannel, setTtsSourceChannel] = useState("");
@@ -865,6 +887,17 @@ export default function App() {
       setVoiceChannels(data);
     } catch (err) {
       console.error("Error loading voice channels:", err);
+    }
+  }, []);
+
+  const loadRoles = useCallback(async (guildId) => {
+    try {
+      const res = await fetch(`${BOT_API_URL}/api/discord/guilds/${guildId}/roles`);
+      if (!res.ok) throw new Error("Failed to load roles");
+      const data = await res.json();
+      setRoles(data);
+    } catch (err) {
+      console.error("Error loading roles:", err);
     }
   }, []);
 
@@ -954,6 +987,7 @@ export default function App() {
     if (selectedGuild) {
       loadChannels(selectedGuild);
       loadVoiceChannels(selectedGuild);
+      loadRoles(selectedGuild);
       loadTTSConfig(selectedGuild);
       const existingConfig = configs.find(c => c.guildId === selectedGuild);
       if (existingConfig) {
@@ -965,12 +999,16 @@ export default function App() {
         setLeaveMessage(existingConfig.leaveMessage || "");
         setLeaveEnabled(existingConfig.leaveEnabled !== false);
         setLeaveCard(existingConfig.leaveCard || getDefaultLeaveCard());
+        setAutoroleEnabled(existingConfig.autoroleEnabled ?? false);
+        setAutoroleRoleId(existingConfig.autoroleRoleId || "");
       } else {
         setWelcomeCard(getDefaultWelcomeCard());
         setLeaveCard(getDefaultLeaveCard());
+        setAutoroleEnabled(false);
+        setAutoroleRoleId("");
       }
     }
-  }, [selectedGuild, loadChannels, loadVoiceChannels, loadTTSConfig, configs]);
+  }, [selectedGuild, loadChannels, loadVoiceChannels, loadRoles, loadTTSConfig, configs]);
 
   const saveConfig = async () => {
     if (!selectedGuild) {
@@ -1001,6 +1039,8 @@ export default function App() {
           leaveMessage,
           leaveEnabled,
           leaveCard,
+          autoroleEnabled,
+          autoroleRoleId,
         }),
       });
 
@@ -1075,12 +1115,22 @@ export default function App() {
             isActive={activeTab === "home"}
             onClick={() => setActiveTab("home")}
           />
-          <SidebarItem
-            icon={FaDoorOpen}
-            label="Messages"
-            isActive={activeTab === "messages"}
-            onClick={() => setActiveTab("messages")}
-          />
+
+          <SidebarCategory label="Welcome">
+            <SidebarItem
+              icon={FaDoorOpen}
+              label="Messages"
+              isActive={activeTab === "messages"}
+              onClick={() => setActiveTab("messages")}
+            />
+            <SidebarItem
+              icon={FaUserTag}
+              label="Autorole"
+              isActive={activeTab === "autorole"}
+              onClick={() => setActiveTab("autorole")}
+            />
+          </SidebarCategory>
+
           <SidebarItem
             icon={FaMicrophone}
             label="Voce"
@@ -1444,6 +1494,109 @@ export default function App() {
                     <Text color="#72767d">Numero di membri</Text>
                   </Box>
                 </Grid>
+              </Box>
+            </VStack>
+          </MotionBox>
+        )}
+
+        {activeTab === "autorole" && (
+          <MotionBox
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3 }}
+          >
+            <VStack spacing={8} align="stretch">
+              <Box>
+                <Heading size="2xl" mb={2} color="#ffffff">
+                  Autorole
+                </Heading>
+                <Text color="#72767d">Configura il ruolo da assegnare automaticamente ai nuovi membri</Text>
+              </Box>
+
+              <Box bg="#2f3136" p={8} borderRadius={0} border="1px" borderColor="#202225">
+                <VStack spacing={8} align="stretch">
+                  {/* Server Selection */}
+                  <FormControl>
+                    <FormLabel fontWeight="bold" color="#ffffff">Server</FormLabel>
+                    <Select
+                      placeholder="Select a server..."
+                      value={selectedGuild}
+                      onChange={(e) => setSelectedGuild(e.target.value)}
+                      bg="#36393f"
+                      borderColor="#202225"
+                      borderRadius={0}
+                      color="#ffffff"
+                      _focus={{
+                        borderColor: "#5865F2",
+                        boxShadow: "0 0 0 1px #5865F2",
+                      }}
+                    >
+                      {guilds.map((guild) => (
+                        <option key={guild.id} value={guild.id}>
+                          {guild.name}
+                        </option>
+                      ))}
+                    </Select>
+                  </FormControl>
+
+                  {selectedGuild && (
+                    <>
+                      <Divider borderColor="#36393f" />
+
+                      <VStack spacing={6} align="stretch">
+                        <FormControl display="flex" alignItems="center">
+                          <Checkbox
+                            isChecked={autoroleEnabled}
+                            onChange={(e) => setAutoroleEnabled(e.target.checked)}
+                            mr={3}
+                            colorScheme="blue"
+                            size="lg"
+                          />
+                          <FormLabel mb={0} fontWeight="medium" color="#ffffff">Abilita Autorole</FormLabel>
+                        </FormControl>
+
+                        <FormControl>
+                          <FormLabel fontWeight="bold" color="#ffffff">Ruolo da assegnare</FormLabel>
+                          <Select
+                            placeholder="Select a role..."
+                            value={autoroleRoleId}
+                            onChange={(e) => setAutoroleRoleId(e.target.value)}
+                            bg="#36393f"
+                            borderColor="#202225"
+                            borderRadius={0}
+                            color="#ffffff"
+                            isDisabled={!selectedGuild || !autoroleEnabled}
+                            _focus={{
+                              borderColor: "#5865F2",
+                              boxShadow: "0 0 0 1px #5865F2",
+                            }}
+                          >
+                            {(roles || []).map((role) => (
+                              <option key={role.id} value={role.id}>
+                                {role.name}
+                              </option>
+                            ))}
+                          </Select>
+                        </FormControl>
+                      </VStack>
+
+                      <Divider borderColor="#36393f" />
+
+                      <Button
+                        colorScheme="blue"
+                        onClick={saveConfig}
+                        size="lg"
+                        borderRadius={0}
+                        bg="#5865F2"
+                        _hover={{
+                          bg: "#4752c4",
+                        }}
+                      >
+                        Salva Configurazione Autorole
+                      </Button>
+                    </>
+                  )}
+                </VStack>
               </Box>
             </VStack>
           </MotionBox>

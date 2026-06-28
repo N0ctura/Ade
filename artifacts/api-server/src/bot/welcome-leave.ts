@@ -114,7 +114,7 @@ async function renderCard(
             const bgBuffer = Buffer.from(await bgResponse.arrayBuffer());
             const img = await loadImage(bgBuffer);
             ctx.drawImage(img, layer.x, layer.y, layer.width, layer.height);
-            
+
             if (layer.grayscale || isLeave) {
               const imageData = ctx.getImageData(layer.x, layer.y, layer.width, layer.height);
               const data = imageData.data;
@@ -170,7 +170,7 @@ async function renderCard(
 
           // Draw avatar
           ctx.drawImage(avatar, layer.x, layer.y, layer.width, layer.height);
-          
+
           // Reset clip for border
           ctx.restore();
           ctx.save();
@@ -207,9 +207,9 @@ async function renderCard(
         ctx.font = `${layer.fontWeight || "normal"} ${layer.fontSize || 24}px Arial`;
         ctx.textAlign = layer.textAlign || "center";
         ctx.textBaseline = "middle";
-        
+
         const processedText = replaceVariables(layer.text || "", member);
-        
+
         if (layer.textAlign === "center") {
           ctx.fillText(processedText, layer.x + layer.width / 2, layer.y + layer.height / 2);
         } else if (layer.textAlign === "right") {
@@ -229,6 +229,18 @@ async function renderCard(
 export async function handleMemberJoin(member: GuildMember): Promise<void> {
   const config = loadConfig();
   const guildConfig = config.welcomeLeaveConfigs?.find(c => c.guildId === member.guild.id);
+
+  // Handle autorole
+  if (guildConfig?.autoroleEnabled && guildConfig.autoroleRoleId) {
+    try {
+      await member.roles.add(guildConfig.autoroleRoleId);
+      logger.info({ guildId: member.guild.id, userId: member.id, roleId: guildConfig.autoroleRoleId }, "Autorole assigned");
+    } catch (err) {
+      logger.error({ err, guildId: member.guild.id, userId: member.id, roleId: guildConfig.autoroleRoleId }, "Error assigning autorole");
+    }
+  }
+
+  // Handle welcome message
   if (!guildConfig?.welcomeEnabled || !guildConfig.welcomeChannelId) return;
 
   try {

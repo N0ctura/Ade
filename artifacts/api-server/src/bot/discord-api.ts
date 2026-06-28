@@ -105,6 +105,40 @@ router.get("/guilds/:guildId", (req: Request, res: Response) => {
 });
 
 /**
+ * GET /api/discord/guilds/:guildId/roles
+ * Ritorna lista di ruoli per un server specifico
+ */
+router.get("/guilds/:guildId/roles", (req: Request, res: Response) => {
+  if (!discordClient) {
+    return res.status(503).json({ error: "Discord client not initialized" });
+  }
+
+  try {
+    const { guildId } = req.params;
+    const guild = discordClient.guilds.cache.get(guildId);
+
+    if (!guild) {
+      return res.status(404).json({ error: "Guild not found" });
+    }
+
+    const roles = guild.roles.cache
+      .filter((role: any) => !role.managed && role.name !== "@everyone")
+      .map((role: any) => ({
+        id: role.id,
+        name: role.name,
+        color: role.hexColor,
+        position: role.position,
+      }))
+      .sort((a: any, b: any) => b.position - a.position);
+
+    res.json(roles);
+  } catch (err) {
+    logger.error({ err }, "Error fetching roles");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+/**
  * GET /api/discord/config
  * Ritorna tutte le configurazioni welcome/leave
  */
@@ -124,7 +158,7 @@ router.get("/config", (req: Request, res: Response) => {
  */
 router.post("/config", (req: Request, res: Response) => {
   try {
-    const { guildId, guildName, welcomeChannelId, welcomeMessage, welcomeEnabled, welcomeCard, leaveChannelId, leaveMessage, leaveEnabled, leaveCard } = req.body;
+    const { guildId, guildName, welcomeChannelId, welcomeMessage, welcomeEnabled, welcomeCard, leaveChannelId, leaveMessage, leaveEnabled, leaveCard, autoroleEnabled, autoroleRoleId } = req.body;
 
     if (!guildId || !guildName) {
       return res.status(400).json({ error: "Guild ID and name are required" });
@@ -145,6 +179,8 @@ router.post("/config", (req: Request, res: Response) => {
       leaveMessage,
       leaveEnabled,
       leaveCard,
+      autoroleEnabled,
+      autoroleRoleId,
     };
 
     if (existingIndex !== -1) {
