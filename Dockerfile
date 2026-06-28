@@ -17,7 +17,7 @@ COPY . .
 RUN pnpm install --no-frozen-lockfile
 
 # Build dashboard with pnpm (dependencies already installed above)
-RUN pnpm --filter ./dashboard run build
+RUN cd dashboard && pnpm run build
 
 # Build the api-server bundle
 RUN pnpm --filter @workspace/api-server run build
