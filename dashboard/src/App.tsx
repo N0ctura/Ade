@@ -431,7 +431,7 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
     return token ? { Authorization: `Bearer ${token}` } : {};
   };
 
-  // Fetch guilds from Discord bot
+  // Fetch guilds the bot is in from /api/discord/guilds
   const loadGuilds = useCallback(async () => {
     setGuildsLoading(true);
     try {
