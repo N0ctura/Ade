@@ -66,7 +66,7 @@ router.get("/discord/callback", async (req: Request, res: Response) => {
       } catch (e) {
         console.error("Failed to store access token", e);
       }
-      window.location.replace("/dashboard");
+      window.location.replace("/");
     </script>
   </body>
 </html>`);
