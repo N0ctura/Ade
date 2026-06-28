@@ -2,12 +2,8 @@ import express, { type Express } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
 import path from "path";
-import { fileURLToPath } from "url";
 import router from "./routes";
 import { logger } from "./lib/logger";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 const app: Express = express();
 
@@ -36,8 +32,8 @@ app.use(express.urlencoded({ extended: true }));
 
 app.use("/api", router);
 
-// Serve the React dashboard static files
-const dashboardBuildPath = path.resolve(__dirname, "../../../dashboard/build");
+// Serve the React dashboard static files from the working directory
+const dashboardBuildPath = path.resolve(process.cwd(), "dashboard/build");
 app.use(express.static(dashboardBuildPath));
 
 // For any routes that don't match API, send back the React index.html
