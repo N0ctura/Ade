@@ -448,4 +448,22 @@ router.post("/tts-config", (req: Request, res: Response) => {
   }
 });
 
+/**
+ * POST /api/discord/upload-image
+ * Carica un'immagine (riceve Base64 e restituisce la stessa stringa per salvarla nel config)
+ */
+router.post("/upload-image", (req: Request, res: Response) => {
+  try {
+    const { image, filename } = req.body;
+    if (!image) {
+      return res.status(400).json({ error: "Image data is required" });
+    }
+    // Restituiamo direttamente la stringa Base64, verrà salvata nel config
+    res.json({ success: true, imageUrl: image, filename: filename || "image.png" });
+  } catch (err) {
+    logger.error({ err }, "Error uploading image");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 export default router;

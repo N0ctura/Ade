@@ -1,0 +1,6 @@
+{
+  "name": "Ade Discord Bot Dashboard",
+  "description": "A high-performance management dashboard and welcome card builder for the Ade Discord Bot, connected to GitHub and hosted on Railway.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

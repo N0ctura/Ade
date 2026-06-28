@@ -459,16 +459,63 @@ const LayerEditor = ({ layer, onUpdate, onDelete }) => {
       {(layer.type === "background" || layer.type === "image") && (
         <>
           <Divider borderColor="#36393f" />
+          
+          {/* Anteprima immagine */}
+          {layer.url && (
+            <FormControl mb={3}>
+              <FormLabel color="#B9BBBE" fontSize="sm">Anteprima</FormLabel>
+              <Box position="relative">
+                <img
+                  src={layer.url}
+                  alt="Anteprima"
+                  style={{
+                    width: "100%", height: "150px", objectFit: "cover", borderRadius: "4px", border: "1px solid #202225" }}
+                />
+                <Button
+                  onClick={() => onUpdate({ ...layer, url: "" })}
+                  position="absolute"
+                  top="4px"
+                  right="4px"
+                  size="xs"
+                  colorScheme="red"
+                  variant="solid"
+                >
+                  <FaTrash />
+                </Button>
+              </Box>
+            </FormControl>
+          )}
+          
+          {/* Campo upload da galleria */}
           <FormControl>
-            <FormLabel color="#B9BBBE" fontSize="sm">URL Immagine</FormLabel>
+            <FormLabel color="#B9BBBE" fontSize="sm">Carica Immagine</FormLabel>
             <Input
-              value={layer.url || ""}
-              onChange={(e) => onUpdate({ ...layer, url: e.target.value })}
+              type="file"
+              accept="image/*"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) {
+                  const reader = new FileReader();
+                  reader.onload = (event) => {
+                    const base64 = event.target.result;
+                    
+                    // Aggiorniamo il layer per coprire TUTTA la card!
+                    onUpdate({
+                      ...layer,
+                      url: base64,
+                      width: 800, // Larghezza card
+                      height: 400, // Altezza card
+                      x: 0,
+                      y: 0
+                    });
+                  };
+                  reader.readAsDataURL(file);
+                }
+              }}
               bg="#36393f"
               borderColor="#202225"
               color="#ffffff"
               borderRadius={0}
-              placeholder="https://..."
             />
           </FormControl>
         </>
