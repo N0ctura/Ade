@@ -18,7 +18,7 @@ function getDiscordConfig() {
   return { clientId, redirectUri };
 }
 
-// GET /config/discord (mounted at /dashboard/config/discord) — returns
+// GET /config/discord — returns
 // Discord OAuth config as JSON so the browser can fetch it at runtime instead
 // of relying on server-side template interpolation (which breaks when env vars
 // are undefined at module load time).
@@ -523,7 +523,7 @@ router.get("/", (req: Request, res: Response) => {
 
         function getDiscordConfig() {
             if (_discordConfig) return Promise.resolve(_discordConfig);
-            return fetch("/dashboard/config/discord")
+            return fetch("/config/discord")
                 .then(function(res) {
                     if (!res.ok) {
                         return res.json().catch(function() { return {}; }).then(function(body) {
@@ -581,7 +581,7 @@ router.get("/", (req: Request, res: Response) => {
             })
             .then(function(data) {
                 setAccessToken(data.access_token);
-                window.history.replaceState({}, document.title, "/dashboard");
+                window.history.replaceState({}, document.title, "/");
                 location.reload();
             })
             .catch(function() {
