@@ -843,7 +843,7 @@ export default function App() {
   const [leaveEnabled, setLeaveEnabled] = useState(true);
   const [leaveCard, setLeaveCard] = useState(getDefaultLeaveCard());
   const [autoroleEnabled, setAutoroleEnabled] = useState(false);
-  const [autoroleRoleId, setAutoroleRoleId] = useState("");
+  const [autoroleRoleIds, setAutoroleRoleIds] = useState([]);
   const [roles, setRoles] = useState([]);
 
   // TTS form state
@@ -853,6 +853,16 @@ export default function App() {
   const [ttsLanguage, setTtsLanguage] = useState("it");
   const [ttsPrefixes, setTtsPrefixes] = useState([",", ";", "!"]);
   const [voiceChannels, setVoiceChannels] = useState([]);
+
+  // Scheduled messages state
+  const [scheduledMessages, setScheduledMessages] = useState([]);
+  const [editingScheduledMessage, setEditingScheduledMessage] = useState(null);
+  const [scheduledMessageChannelId, setScheduledMessageChannelId] = useState("");
+  const [scheduledMessageText, setScheduledMessageText] = useState("");
+  const [scheduledMessageIsRecurring, setScheduledMessageIsRecurring] = useState(true);
+  const [scheduledMessageInterval, setScheduledMessageInterval] = useState("daily");
+  const [scheduledMessageDays, setScheduledMessageDays] = useState(1);
+  const [scheduledMessageEnabled, setScheduledMessageEnabled] = useState(true);
 
   const loadGuilds = useCallback(async () => {
     try {
@@ -915,6 +925,104 @@ export default function App() {
       console.error("Error loading TTS config:", err);
     }
   }, []);
+
+  const loadScheduledMessages = useCallback(async (guildId) => {
+    try {
+      const res = await fetch(`${BOT_API_URL}/api/discord/scheduled-messages/${guildId}`);
+      if (!res.ok) throw new Error("Failed to load scheduled messages");
+      const data = await res.json();
+      setScheduledMessages(data);
+    } catch (err) {
+      console.error("Error loading scheduled messages:", err);
+    }
+  }, []);
+
+  const saveScheduledMessage = useCallback(async () => {
+    if (!selectedGuild || !scheduledMessageChannelId || !scheduledMessageText) {
+      toast({
+        title: "Errore",
+        description: "Seleziona un server, un canale e scrivi un messaggio",
+        status: "error",
+        duration: 3000,
+        isClosable: true,
+      });
+      return;
+    }
+
+    const guildName = guilds.find((g) => g.id === selectedGuild)?.name || "Unknown";
+
+    try {
+      const res = await fetch(`${BOT_API_URL}/api/discord/scheduled-messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: editingScheduledMessage?.id,
+          guildId: selectedGuild,
+          channelId: scheduledMessageChannelId,
+          message: scheduledMessageText,
+          isRecurring: scheduledMessageIsRecurring,
+          recurrenceInterval: scheduledMessageIsRecurring ? scheduledMessageInterval : undefined,
+          scheduledTime: new Date().toISOString(),
+          enabled: scheduledMessageEnabled,
+        }),
+      });
+
+      if (res.ok) {
+        toast({
+          title: "Successo",
+          description: "Messaggio automatico salvato!",
+          status: "success",
+          duration: 3000,
+          isClosable: true,
+        });
+        loadScheduledMessages(selectedGuild);
+        setEditingScheduledMessage(null);
+        setScheduledMessageChannelId("");
+        setScheduledMessageText("");
+        setScheduledMessageIsRecurring(true);
+        setScheduledMessageInterval("daily");
+        setScheduledMessageDays(1);
+        setScheduledMessageEnabled(true);
+      }
+    } catch (err) {
+      console.error("Error saving scheduled message:", err);
+      toast({
+        title: "Errore",
+        description: "Impossibile salvare il messaggio automatico",
+        status: "error",
+        duration: 3000,
+        isClosable: true,
+      });
+    }
+  }, [selectedGuild, guilds, scheduledMessageChannelId, scheduledMessageText, scheduledMessageIsRecurring, scheduledMessageInterval, scheduledMessageEnabled, editingScheduledMessage, toast, loadScheduledMessages]);
+
+  const deleteScheduledMessage = useCallback(async (messageId) => {
+    try {
+      const res = await fetch(`${BOT_API_URL}/api/discord/scheduled-messages/${messageId}`, {
+        method: "DELETE",
+      });
+
+      if (res.ok) {
+        toast({
+          title: "Successo",
+          description: "Messaggio automatico eliminato!",
+          status: "success",
+          duration: 3000,
+          isClosable: true,
+        });
+        loadScheduledMessages(selectedGuild);
+      }
+    } catch (err) {
+      console.error("Error deleting scheduled message:", err);
+      toast({
+        title: "Errore",
+        description: "Impossibile eliminare il messaggio automatico",
+        status: "error",
+        duration: 3000,
+        isClosable: true,
+      });
+    }
+  }, [selectedGuild, toast, loadScheduledMessages]);
 
   const saveTTSConfig = useCallback(async () => {
     if (!selectedGuild) {
@@ -989,6 +1097,7 @@ export default function App() {
       loadVoiceChannels(selectedGuild);
       loadRoles(selectedGuild);
       loadTTSConfig(selectedGuild);
+      loadScheduledMessages(selectedGuild);
       const existingConfig = configs.find(c => c.guildId === selectedGuild);
       if (existingConfig) {
         setWelcomeChannel(existingConfig.welcomeChannelId || "");
@@ -1000,15 +1109,15 @@ export default function App() {
         setLeaveEnabled(existingConfig.leaveEnabled !== false);
         setLeaveCard(existingConfig.leaveCard || getDefaultLeaveCard());
         setAutoroleEnabled(existingConfig.autoroleEnabled ?? false);
-        setAutoroleRoleId(existingConfig.autoroleRoleId || "");
+        setAutoroleRoleIds(existingConfig.autoroleRoleIds || []);
       } else {
         setWelcomeCard(getDefaultWelcomeCard());
         setLeaveCard(getDefaultLeaveCard());
         setAutoroleEnabled(false);
-        setAutoroleRoleId("");
+        setAutoroleRoleIds([]);
       }
     }
-  }, [selectedGuild, loadChannels, loadVoiceChannels, loadRoles, loadTTSConfig, configs]);
+  }, [selectedGuild, loadChannels, loadVoiceChannels, loadRoles, loadTTSConfig, loadScheduledMessages, configs]);
 
   const saveConfig = async () => {
     if (!selectedGuild) {
@@ -1040,7 +1149,7 @@ export default function App() {
           leaveEnabled,
           leaveCard,
           autoroleEnabled,
-          autoroleRoleId,
+          autoroleRoleIds,
         }),
       });
 
@@ -1131,12 +1240,21 @@ export default function App() {
             />
           </SidebarCategory>
 
-          <SidebarItem
-            icon={FaMicrophone}
-            label="Voce"
-            isActive={activeTab === "voice"}
-            onClick={() => setActiveTab("voice")}
-          />
+          <SidebarCategory label="Messaggi">
+            <SidebarItem
+              icon={FaWaveSquare}
+              label="Messaggi automatici"
+              isActive={activeTab === "scheduled-messages"}
+              onClick={() => setActiveTab("scheduled-messages")}
+            />
+            <SidebarItem
+              icon={FaMicrophone}
+              label="Voce"
+              isActive={activeTab === "voice"}
+              onClick={() => setActiveTab("voice")}
+            />
+          </SidebarCategory>
+
           <SidebarItem
             icon={FaCog}
             label="Settings"
@@ -1556,27 +1674,37 @@ export default function App() {
                         </FormControl>
 
                         <FormControl>
-                          <FormLabel fontWeight="bold" color="#ffffff">Ruolo da assegnare</FormLabel>
-                          <Select
-                            placeholder="Select a role..."
-                            value={autoroleRoleId}
-                            onChange={(e) => setAutoroleRoleId(e.target.value)}
+                          <FormLabel fontWeight="bold" color="#ffffff">Ruoli da assegnare</FormLabel>
+                          <Box
                             bg="#36393f"
+                            border="1px"
                             borderColor="#202225"
                             borderRadius={0}
-                            color="#ffffff"
-                            isDisabled={!selectedGuild || !autoroleEnabled}
-                            _focus={{
-                              borderColor: "#5865F2",
-                              boxShadow: "0 0 0 1px #5865F2",
-                            }}
+                            p={4}
+                            maxH="300px"
+                            overflowY="auto"
                           >
-                            {(roles || []).map((role) => (
-                              <option key={role.id} value={role.id}>
-                                {role.name}
-                              </option>
-                            ))}
-                          </Select>
+                            <VStack spacing={2} align="stretch">
+                              {(roles || []).map((role) => (
+                                <FormControl key={role.id} display="flex" alignItems="center">
+                                  <Checkbox
+                                    isChecked={autoroleRoleIds.includes(role.id)}
+                                    onChange={(e) => {
+                                      if (e.target.checked) {
+                                        setAutoroleRoleIds([...autoroleRoleIds, role.id]);
+                                      } else {
+                                        setAutoroleRoleIds(autoroleRoleIds.filter(id => id !== role.id));
+                                      }
+                                    }}
+                                    mr={2}
+                                    colorScheme="blue"
+                                    isDisabled={!selectedGuild || !autoroleEnabled}
+                                  />
+                                  <Text color="#ffffff">{role.name}</Text>
+                                </FormControl>
+                              ))}
+                            </VStack>
+                          </Box>
                         </FormControl>
                       </VStack>
 
@@ -1594,6 +1722,244 @@ export default function App() {
                       >
                         Salva Configurazione Autorole
                       </Button>
+                    </>
+                  )}
+                </VStack>
+              </Box>
+            </VStack>
+          </MotionBox>
+        )}
+
+        {activeTab === "scheduled-messages" && (
+          <MotionBox
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3 }}
+          >
+            <VStack spacing={8} align="stretch">
+              <Box>
+                <Heading size="2xl" mb={2} color="#ffffff">
+                  Messaggi automatici
+                </Heading>
+                <Text color="#72767d">Configura messaggi che si ripetono automaticamente in un canale</Text>
+              </Box>
+
+              <Box bg="#2f3136" p={8} borderRadius={0} border="1px" borderColor="#202225">
+                <VStack spacing={8} align="stretch">
+                  {/* Server Selection */}
+                  <FormControl>
+                    <FormLabel fontWeight="bold" color="#ffffff">Server</FormLabel>
+                    <Select
+                      placeholder="Select a server..."
+                      value={selectedGuild}
+                      onChange={(e) => setSelectedGuild(e.target.value)}
+                      bg="#36393f"
+                      borderColor="#202225"
+                      borderRadius={0}
+                      color="#ffffff"
+                      _focus={{
+                        borderColor: "#5865F2",
+                        boxShadow: "0 0 0 1px #5865F2",
+                      }}
+                    >
+                      {guilds.map((guild) => (
+                        <option key={guild.id} value={guild.id}>
+                          {guild.name}
+                        </option>
+                      ))}
+                    </Select>
+                  </FormControl>
+
+                  {selectedGuild && (
+                    <>
+                      <Divider borderColor="#36393f" />
+
+                      {/* Add/Edit Form */}
+                      <Box>
+                        <Heading size="lg" mb={4} color="#ffffff">
+                          {editingScheduledMessage ? "Modifica messaggio" : "Nuovo messaggio"}
+                        </Heading>
+                        <VStack spacing={4} align="stretch">
+                          <FormControl>
+                            <FormLabel fontWeight="bold" color="#ffffff">Canale</FormLabel>
+                            <Select
+                              placeholder="Select a channel..."
+                              value={scheduledMessageChannelId}
+                              onChange={(e) => setScheduledMessageChannelId(e.target.value)}
+                              bg="#36393f"
+                              borderColor="#202225"
+                              borderRadius={0}
+                              color="#ffffff"
+                              _focus={{
+                                borderColor: "#5865F2",
+                                boxShadow: "0 0 0 1px #5865F2",
+                              }}
+                            >
+                              {(channels || []).map((channel) => (
+                                <option key={channel.id} value={channel.id}>
+                                  #{channel.name}
+                                </option>
+                              ))}
+                            </Select>
+                          </FormControl>
+
+                          <FormControl>
+                            <FormLabel fontWeight="bold" color="#ffffff">Messaggio</FormLabel>
+                            <Textarea
+                              placeholder="Scrivi il tuo messaggio..."
+                              value={scheduledMessageText}
+                              onChange={(e) => setScheduledMessageText(e.target.value)}
+                              bg="#36393f"
+                              borderColor="#202225"
+                              borderRadius={0}
+                              color="#ffffff"
+                              minH="100px"
+                              _focus={{
+                                borderColor: "#5865F2",
+                                boxShadow: "0 0 0 1px #5865F2",
+                              }}
+                            />
+                          </FormControl>
+
+                          <FormControl display="flex" alignItems="center">
+                            <Checkbox
+                              isChecked={scheduledMessageIsRecurring}
+                              onChange={(e) => setScheduledMessageIsRecurring(e.target.checked)}
+                              mr={3}
+                              colorScheme="blue"
+                            />
+                            <FormLabel mb={0} fontWeight="medium" color="#ffffff">Ripeti infinitamente</FormLabel>
+                          </FormControl>
+
+                          {scheduledMessageIsRecurring && (
+                            <Grid templateColumns={{ base: "1fr", md: "1fr 1fr" }} gap={4}>
+                              <FormControl>
+                                <FormLabel fontWeight="bold" color="#ffffff">Intervallo</FormLabel>
+                                <Select
+                                  value={scheduledMessageInterval}
+                                  onChange={(e) => setScheduledMessageInterval(e.target.value)}
+                                  bg="#36393f"
+                                  borderColor="#202225"
+                                  borderRadius={0}
+                                  color="#ffffff"
+                                  _focus={{
+                                    borderColor: "#5865F2",
+                                    boxShadow: "0 0 0 1px #5865F2",
+                                  }}
+                                >
+                                  <option value="daily">Ogni giorno</option>
+                                  <option value="weekly">Ogni settimana</option>
+                                  <option value="monthly">Ogni mese</option>
+                                </Select>
+                              </FormControl>
+                            </Grid>
+                          )}
+
+                          <FormControl display="flex" alignItems="center">
+                            <Checkbox
+                              isChecked={scheduledMessageEnabled}
+                              onChange={(e) => setScheduledMessageEnabled(e.target.checked)}
+                              mr={3}
+                              colorScheme="blue"
+                            />
+                            <FormLabel mb={0} fontWeight="medium" color="#ffffff">Abilita messaggio</FormLabel>
+                          </FormControl>
+
+                          <Flex gap={4}>
+                            <Button
+                              colorScheme="blue"
+                              onClick={saveScheduledMessage}
+                              borderRadius={0}
+                              bg="#5865F2"
+                              _hover={{ bg: "#4752c4" }}
+                              flex={1}
+                            >
+                              {editingScheduledMessage ? "Aggiorna" : "Salva"}
+                            </Button>
+                            {editingScheduledMessage && (
+                              <Button
+                                colorScheme="gray"
+                                onClick={() => {
+                                  setEditingScheduledMessage(null);
+                                  setScheduledMessageChannelId("");
+                                  setScheduledMessageText("");
+                                  setScheduledMessageIsRecurring(true);
+                                  setScheduledMessageInterval("daily");
+                                  setScheduledMessageDays(1);
+                                  setScheduledMessageEnabled(true);
+                                }}
+                                borderRadius={0}
+                              >
+                                Annulla
+                              </Button>
+                            )}
+                          </Flex>
+                        </VStack>
+                      </Box>
+
+                      <Divider borderColor="#36393f" />
+
+                      {/* List */}
+                      <Box>
+                        <Heading size="lg" mb={4} color="#ffffff">
+                          Messaggi salvati
+                        </Heading>
+                        {scheduledMessages.length === 0 ? (
+                          <Text color="#72767d">Nessun messaggio automatico configurato</Text>
+                        ) : (
+                          <VStack spacing={3} align="stretch">
+                            {scheduledMessages.map((msg) => (
+                              <Box key={msg.id} bg="#36393f" p={4} borderRadius={0} border="1px" borderColor="#202225">
+                                <Flex justifyContent="space-between" alignItems="start">
+                                  <Box flex={1}>
+                                    <Flex alignItems="center" gap={2} mb={2}>
+                                      <Badge colorScheme={msg.enabled ? "green" : "red"} borderRadius={0}>
+                                        {msg.enabled ? "Attivo" : "Disattivo"}
+                                      </Badge>
+                                      <Text color="#ffffff" fontWeight="bold">
+                                        #{channels.find(c => c.id === msg.channelId)?.name || "Canale non trovato"}
+                                      </Text>
+                                    </Flex>
+                                    <Text color="#B9BBBE" noOfLines={2}>
+                                      {msg.message}
+                                    </Text>
+                                    {msg.isRecurring && (
+                                      <Text color="#72767d" fontSize="sm" mt={2}>
+                                        Ripetizione: {msg.recurrenceInterval === "daily" ? "Giornaliera" : msg.recurrenceInterval === "weekly" ? "Settimanale" : "Mensile"}
+                                      </Text>
+                                    )}
+                                  </Box>
+                                  <Flex gap={2} ml={4}>
+                                    <Button
+                                      size="sm"
+                                      colorScheme="blue"
+                                      borderRadius={0}
+                                      onClick={() => {
+                                        setEditingScheduledMessage(msg);
+                                        setScheduledMessageChannelId(msg.channelId);
+                                        setScheduledMessageText(msg.message);
+                                        setScheduledMessageIsRecurring(msg.isRecurring);
+                                        setScheduledMessageInterval(msg.recurrenceInterval || "daily");
+                                        setScheduledMessageEnabled(msg.enabled);
+                                      }}
+                                    >
+                                      Modifica
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      colorScheme="red"
+                                      borderRadius={0}
+                                      onClick={() => deleteScheduledMessage(msg.id)}
+                                    >
+                                      Elimina
+                                    </Button>
+                                  </Flex>
+                                </Flex>
+                              </Box>
+                            ))}
+                          </VStack>
+                        )}
+                      </Box>
                     </>
                   )}
                 </VStack>

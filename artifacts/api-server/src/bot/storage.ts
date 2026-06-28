@@ -111,7 +111,7 @@ export interface GuildWelcomeLeaveConfig {
   leaveEnabled?: boolean;
   leaveCard?: CardConfig;
   autoroleEnabled?: boolean;
-  autoroleRoleId?: string;
+  autoroleRoleIds?: string[];
 }
 
 export interface GuildTTSConfig {

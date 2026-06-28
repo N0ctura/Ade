@@ -231,12 +231,12 @@ export async function handleMemberJoin(member: GuildMember): Promise<void> {
   const guildConfig = config.welcomeLeaveConfigs?.find(c => c.guildId === member.guild.id);
 
   // Handle autorole
-  if (guildConfig?.autoroleEnabled && guildConfig.autoroleRoleId) {
+  if (guildConfig?.autoroleEnabled && guildConfig.autoroleRoleIds && guildConfig.autoroleRoleIds.length > 0) {
     try {
-      await member.roles.add(guildConfig.autoroleRoleId);
-      logger.info({ guildId: member.guild.id, userId: member.id, roleId: guildConfig.autoroleRoleId }, "Autorole assigned");
+      await member.roles.add(guildConfig.autoroleRoleIds);
+      logger.info({ guildId: member.guild.id, userId: member.id, roleIds: guildConfig.autoroleRoleIds }, "Autorole assigned");
     } catch (err) {
-      logger.error({ err, guildId: member.guild.id, userId: member.id, roleId: guildConfig.autoroleRoleId }, "Error assigning autorole");
+      logger.error({ err, guildId: member.guild.id, userId: member.id, roleIds: guildConfig.autoroleRoleIds }, "Error assigning autorole");
     }
   }
 
