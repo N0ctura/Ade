@@ -30,6 +30,20 @@ import { BotStatus, CardConfig, CardLayer, LogEntry, ModuleConfig, DeletedModifi
 import Login from "./pages/Login";
 import { isAuthenticated, getAccessToken, removeAccessToken } from "./config/discord";
 
+// Discord guild and channel types
+interface Guild {
+  id: string;
+  name: string;
+  memberCount: number;
+  icon: string | null;
+}
+
+interface Channel {
+  id: string;
+  name: string;
+  type: number;
+}
+
 // Default local variables for replacing preset text in live preview
 const replaceVars = (text: string, mockUsername = "N0ctura", memberCount = 412) => {
   return (text || "")
@@ -371,6 +385,16 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
   // Intercepted Deleted/Modified Logs State
   const [deletedModifiedLogs, setDeletedModifiedLogs] = useState<DeletedModifiedLog[]>([]);
 
+  // Guild & Channel State
+  const [guilds, setGuilds] = useState<Guild[]>([]);
+  const [guildsLoading, setGuildsLoading] = useState(false);
+  const [welcomeGuildId, setWelcomeGuildId] = useState<string>("");
+  const [leaveGuildId, setLeaveGuildId] = useState<string>("");
+  const [welcomeChannels, setWelcomeChannels] = useState<Channel[]>([]);
+  const [leaveChannels, setLeaveChannels] = useState<Channel[]>([]);
+  const [welcomeChannelsLoading, setWelcomeChannelsLoading] = useState(false);
+  const [leaveChannelsLoading, setLeaveChannelsLoading] = useState(false);
+
   // UI Support States
   const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null);
   const [logFilter, setLogFilter] = useState<string>("all");
@@ -407,6 +431,59 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
     return token ? { Authorization: `Bearer ${token}` } : {};
   };
 
+  // Fetch guilds from Discord bot
+  const loadGuilds = useCallback(async () => {
+    setGuildsLoading(true);
+    try {
+      const res = await fetch("/api/discord/guilds", {
+        headers: authHeaders(),
+      });
+      if (res.ok) {
+        const data: Guild[] = await res.json();
+        setGuilds(data);
+        // Pre-select the first guild for both welcome and leave if none selected
+        if (data.length > 0) {
+          setWelcomeGuildId(prev => prev || data[0]!.id);
+          setLeaveGuildId(prev => prev || data[0]!.id);
+        }
+      } else {
+        console.warn("Could not load guilds:", res.status);
+      }
+    } catch (err) {
+      console.error("Error loading guilds:", err);
+    } finally {
+      setGuildsLoading(false);
+    }
+  }, []);
+
+  // Fetch text channels for a guild
+  const loadChannels = useCallback(async (
+    guildId: string,
+    section: "welcome" | "leave"
+  ) => {
+    if (!guildId) return;
+    if (section === "welcome") setWelcomeChannelsLoading(true);
+    else setLeaveChannelsLoading(true);
+
+    try {
+      const res = await fetch(`/api/discord/guilds/${guildId}/channels`, {
+        headers: authHeaders(),
+      });
+      if (res.ok) {
+        const data: Channel[] = await res.json();
+        if (section === "welcome") setWelcomeChannels(data);
+        else setLeaveChannels(data);
+      } else {
+        console.warn(`Could not load channels for guild ${guildId}:`, res.status);
+      }
+    } catch (err) {
+      console.error("Error loading channels:", err);
+    } finally {
+      if (section === "welcome") setWelcomeChannelsLoading(false);
+      else setLeaveChannelsLoading(false);
+    }
+  }, []);
+
   // Fetch initial data from server
   const loadData = useCallback(async () => {
     try {
@@ -440,6 +517,7 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
 
   useEffect(() => {
     loadData();
+    loadGuilds();
     
     // Set simulated clock for local UTC status
     const updateTime = () => {
@@ -449,7 +527,21 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
     updateTime();
     const timer = setInterval(updateTime, 1000);
     return () => clearInterval(timer);
-  }, [loadData]);
+  }, [loadData, loadGuilds]);
+
+  // Load channels when welcome guild selection changes
+  useEffect(() => {
+    if (welcomeGuildId) {
+      loadChannels(welcomeGuildId, "welcome");
+    }
+  }, [welcomeGuildId, loadChannels]);
+
+  // Load channels when leave guild selection changes
+  useEffect(() => {
+    if (leaveGuildId) {
+      loadChannels(leaveGuildId, "leave");
+    }
+  }, [leaveGuildId, loadChannels]);
 
   // General Post Config Saver
   const saveSection = async (section: keyof ModuleConfig, payload: any, message: string) => {
@@ -1094,22 +1186,69 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
 
                 {/* Configuration Fields */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Server (Guild) Selector */}
                   <div className="space-y-2">
-                    <label className="text-xs font-bold text-neutral-400 uppercase">Canale Discord di Inizio</label>
-                    <select
-                      value={configs[activeTab].channelId}
-                      onChange={(e) => {
-                        saveSection(activeTab, { ...configs[activeTab], channelId: e.target.value }, "Canale aggiornato!");
-                      }}
-                      className="w-full bg-neutral-900 border border-neutral-800/80 px-4 py-2.5 rounded-lg text-sm text-neutral-200 focus:outline-none focus:border-indigo-500 font-mono"
-                    >
-                      <option value="112233445566778899">#generale</option>
-                      <option value="112233445566778800">#welcome-log</option>
-                      <option value="112233445566778805">#comandi-bot</option>
-                    </select>
+                    <label className="text-xs font-bold text-neutral-400 uppercase">Server Discord</label>
+                    {guildsLoading ? (
+                      <div className="w-full bg-neutral-900 border border-neutral-800/80 px-4 py-2.5 rounded-lg text-sm text-neutral-500 flex items-center gap-2">
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>Caricamento server...</span>
+                      </div>
+                    ) : guilds.length === 0 ? (
+                      <div className="w-full bg-neutral-900 border border-neutral-800/80 px-4 py-2.5 rounded-lg text-sm text-neutral-500 italic">
+                        Nessun server trovato
+                      </div>
+                    ) : (
+                      <select
+                        value={activeTab === "welcome" ? welcomeGuildId : leaveGuildId}
+                        onChange={(e) => {
+                          if (activeTab === "welcome") setWelcomeGuildId(e.target.value);
+                          else setLeaveGuildId(e.target.value);
+                        }}
+                        className="w-full bg-neutral-900 border border-neutral-800/80 px-4 py-2.5 rounded-lg text-sm text-neutral-200 focus:outline-none focus:border-indigo-500"
+                      >
+                        {guilds.map((guild) => (
+                          <option key={guild.id} value={guild.id}>
+                            {guild.name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                   </div>
 
+                  {/* Channel Selector */}
                   <div className="space-y-2">
+                    <label className="text-xs font-bold text-neutral-400 uppercase">Canale Discord di Inizio</label>
+                    {(activeTab === "welcome" ? welcomeChannelsLoading : leaveChannelsLoading) ? (
+                      <div className="w-full bg-neutral-900 border border-neutral-800/80 px-4 py-2.5 rounded-lg text-sm text-neutral-500 flex items-center gap-2">
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>Caricamento canali...</span>
+                      </div>
+                    ) : (activeTab === "welcome" ? welcomeChannels : leaveChannels).length === 0 ? (
+                      <div className="w-full bg-neutral-900 border border-neutral-800/80 px-4 py-2.5 rounded-lg text-sm text-neutral-500 italic">
+                        {(activeTab === "welcome" ? welcomeGuildId : leaveGuildId)
+                          ? "Nessun canale trovato"
+                          : "Seleziona prima un server"}
+                      </div>
+                    ) : (
+                      <select
+                        value={configs[activeTab].channelId}
+                        onChange={(e) => {
+                          saveSection(activeTab, { ...configs[activeTab], channelId: e.target.value }, "Canale aggiornato!");
+                        }}
+                        className="w-full bg-neutral-900 border border-neutral-800/80 px-4 py-2.5 rounded-lg text-sm text-neutral-200 focus:outline-none focus:border-indigo-500 font-mono"
+                      >
+                        <option value="">— Seleziona un canale —</option>
+                        {(activeTab === "welcome" ? welcomeChannels : leaveChannels).map((ch) => (
+                          <option key={ch.id} value={ch.id}>
+                            #{ch.name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+
+                  <div className="space-y-2 md:col-span-2">
                     <label className="text-xs font-bold text-neutral-400 uppercase">Messaggio di accompagnamento</label>
                     <input
                       type="text"
