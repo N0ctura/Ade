@@ -11,8 +11,8 @@ import {
 import { GuildMember, TextChannel, VoiceChannel, Client, VoiceState } from "discord.js";
 import { logger } from "../lib/logger.js";
 import { loadConfig, saveConfig, type GuildTTSConfig } from "./storage.js";
-import gTTS from "gtts";
 import { Readable } from "node:stream";
+import https from "node:https";
 
 // Map per tenere traccia delle connessioni vocali per ogni guild
 const connections: Map<string, VoiceConnection> = new Map();
@@ -31,33 +31,65 @@ function removeEmojis(str: string): string {
 }
 
 /**
- * Converte un testo in audio MP3 usando gTTS in italiano
+ * Converte un testo in audio MP3 usando Google Translate TTS API
  */
 async function textToMp3Stream(text: string, lang: string = "it"): Promise<Readable> {
   return new Promise((resolve, reject) => {
     try {
-      // @ts-ignore - gTTS library types might be incomplete
-      const gtts = new gTTS(text, lang);
-      // @ts-ignore - gTTS library types might be incomplete
-      const stream = gtts.stream() as Readable;
-      const chunks: Buffer[] = [];
+      logger.info({ text, lang }, "TTS: creazione stream audio");
 
-      stream.on('data', (chunk: Buffer) => {
-        chunks.push(chunk);
+      // URL di Google Translate TTS (stesso di gtts)
+      const url = `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&q=${encodeURIComponent(text)}&tl=${lang}&total=1&idx=0`;
+
+      // Eseguiamo la richiesta GET
+      const req = https.get(url, {
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          "Referer": "http://translate.google.com/",
+        },
+      }, (res) => {
+        if (res.statusCode !== 200) {
+          logger.error(
+            { statusCode: res.statusCode, statusMessage: res.statusMessage, text, lang },
+            "TTS: errore risposta API"
+          );
+          reject(new Error(`Errore API TTS: ${res.statusCode} ${res.statusMessage}`));
+          return;
+        }
+
+        const chunks: Buffer[] = [];
+
+        res.on("data", (chunk: Buffer) => {
+          logger.debug({ chunkSize: chunk.length }, "TTS: ricevuto chunk audio");
+          chunks.push(chunk);
+        });
+
+        res.on("end", () => {
+          logger.info(
+            { totalSize: chunks.reduce((sum, b) => sum + b.length, 0) },
+            "TTS: stream completato"
+          );
+          const buffer = Buffer.concat(chunks);
+          const readableStream = Readable.from(buffer);
+          resolve(readableStream);
+        });
+
+        res.on("error", (err) => {
+          logger.error({ err, text, lang }, "TTS: errore risposta API");
+          reject(err);
+        });
       });
 
-      stream.on('end', () => {
-        const buffer = Buffer.concat(chunks);
-        const readableStream = Readable.from(buffer);
-        resolve(readableStream);
-      });
-
-      stream.on('error', (err: Error) => {
-        logger.error({ err, text }, "Errore nella generazione audio TTS");
+      req.on("error", (err) => {
+        logger.error({ err, text, lang }, "TTS: errore richiesta");
         reject(err);
       });
     } catch (err) {
-      logger.error({ err, text }, "Errore nella funzione textToMp3Stream");
+      logger.error(
+        { err, text, stack: (err as Error)?.stack },
+        "Errore nella funzione textToMp3Stream"
+      );
       reject(err);
     }
   });
@@ -143,8 +175,8 @@ export async function playTextInChannel(
     });
 
     // Log errori player
-    player.on('error', error => {
-      logger.error({ error, guildId }, 'TTS: errore nel player audio');
+    player.on("error", (error) => {
+      logger.error({ error, guildId }, "TTS: errore nel player audio");
     });
   }
 
@@ -196,22 +228,6 @@ async function playFromQueue(
 }
 
 /**
- * Funzione per il comando slash /leggi: legge un testo nel canale vocale dell'utente
- */
-export async function playText(
-  member: GuildMember,
-  text: string,
-  lang: string = "it"
-): Promise<void> {
-  const voiceChannelId = member.voice.channelId;
-  if (!voiceChannelId) {
-    throw new Error("L'utente non è in un canale vocale!");
-  }
-
-  await playTextInChannel(member.guild.id, voiceChannelId, text, lang, member.client);
-}
-
-/**
  * Ferma il TTS e disconnette dal canale vocale
  */
 export function stopTTS(guildId: string): void {
@@ -229,6 +245,22 @@ export function stopTTS(guildId: string): void {
   queues.delete(guildId);
   isPlaying.set(guildId, false);
   logger.info({ guildId }, "TTS: fermato e disconnesso");
+}
+
+/**
+ * Funzione per il comando slash /leggi: legge un testo nel canale vocale dell'utente
+ */
+export async function playText(
+  member: GuildMember,
+  text: string,
+  lang: string = "it"
+): Promise<void> {
+  const voiceChannelId = member.voice.channelId;
+  if (!voiceChannelId) {
+    throw new Error("L'utente non è in un canale vocale!");
+  }
+
+  await playTextInChannel(member.guild.id, voiceChannelId, text, lang, member.client);
 }
 
 /**
