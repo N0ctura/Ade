@@ -310,6 +310,10 @@ export default function App() {
 
   const [activeTab, setActiveTab] = useState<"home" | "welcome" | "leave" | "autorole" | "messages" | "voice" | "logs">("home");
 
+  // Server Selection (Server Picker)
+  const [selectedGuildId, setSelectedGuildId] = useState<string | null>(null);
+  const [guilds, setGuilds] = useState<any[]>([]);
+
   // Server Status & Logs state
   const [botStatus, setBotStatus] = useState<BotStatus>({
     online: true,
@@ -410,10 +414,20 @@ export default function App() {
         const data = await logsRes.json();
         setDeletedModifiedLogs(data);
       }
+
+      // Fetch Guilds/Servers for server picker
+      const guildsRes = await fetch("/api/discord/guilds");
+      if (guildsRes.ok) {
+        const data = await guildsRes.json();
+        setGuilds(data);
+        if (data.length > 0 && !selectedGuildId) {
+          setSelectedGuildId(data[0].id);
+        }
+      }
     } catch (err) {
       console.error("Error loading server-side dashboard data:", err);
     }
-  }, []);
+  }, [selectedGuildId]);
 
   useEffect(() => {
     loadData();
@@ -718,6 +732,26 @@ export default function App() {
               </p>
               <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
             </div>
+
+            {/* Server Picker */}
+            {guilds.length > 0 && (
+              <div className="px-6 pb-4 border-b border-neutral-800 bg-neutral-900/10">
+                <label className="text-[10px] font-bold text-neutral-500 uppercase tracking-wide block mb-1">
+                  Seleziona Server
+                </label>
+                <select
+                  value={selectedGuildId || ""}
+                  onChange={(e) => setSelectedGuildId(e.target.value)}
+                  className="w-full bg-neutral-900 border border-neutral-800 px-3 py-2 rounded-lg text-xs text-neutral-200 focus:outline-none focus:border-indigo-500"
+                >
+                  {guilds.map((guild) => (
+                    <option key={guild.id} value={guild.id}>
+                      {guild.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
 
           {/* Navigation Links List */}
