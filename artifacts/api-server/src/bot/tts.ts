@@ -244,29 +244,26 @@ export async function handleMessageForTTS(message: {
   // Ottieni la configurazione TTS per questa guild
   const ttsConfig = getTTSConfig(message.guildId);
 
-  // Verifica se TTS è abilitato
-  if (!ttsConfig.ttsEnabled) {
-    return;
-  }
-
-  // Verifica se il canale sorgente è configurato e corrisponde
-  if (ttsConfig.ttsSourceChannelId && message.channelId !== ttsConfig.ttsSourceChannelId) {
-    return;
-  }
-
-  // Controlla se il messaggio inizia con uno dei prefissi
-  let hasPrefix = false;
+  // --- CASO 1: TTS automatico (se abilitato e canale sorgente configurato) ---
+  let shouldSpeak = false;
   let textToSpeak = "";
 
-  for (const prefix of ttsConfig.ttsPrefixes!) {
-    if (message.content.startsWith(prefix)) {
-      hasPrefix = true;
-      textToSpeak = message.content.slice(prefix.length).trim();
-      break;
+  if (ttsConfig.ttsEnabled && ttsConfig.ttsSourceChannelId && message.channelId === ttsConfig.ttsSourceChannelId) {
+    // TTS automatico: legge tutti i messaggi nel canale sorgente
+    shouldSpeak = true;
+    textToSpeak = message.content;
+  } else {
+    // --- CASO 2: Comando con prefisso (funziona sempre, anche senza TTS abilitato) ---
+    for (const prefix of ttsConfig.ttsPrefixes!) {
+      if (message.content.startsWith(prefix)) {
+        shouldSpeak = true;
+        textToSpeak = message.content.slice(prefix.length).trim();
+        break;
+      }
     }
   }
 
-  if (!hasPrefix || !textToSpeak) {
+  if (!shouldSpeak || !textToSpeak) {
     return;
   }
 
@@ -283,11 +280,18 @@ export async function handleMessageForTTS(message: {
     return;
   }
 
-  // Pulisci il nome utente dalle emoji
-  const cleanUsername = removeEmojis(message.member.displayName || message.member.user.username);
+  // Pulisci il nome utente dalle emoji (solo per i messaggi con prefisso o TTS automatico?)
+  let cleanUsername: string | null = null;
+  if (!ttsConfig.ttsEnabled || !ttsConfig.ttsSourceChannelId) {
+    // Per i messaggi con prefisso: non aggiungiamo "X dice: "
+    cleanUsername = null;
+  } else {
+    // Per TTS automatico: aggiungiamo "X dice: "
+    cleanUsername = removeEmojis(message.member.displayName || message.member.user.username);
+  }
 
   // Formatta il testo
-  const fullText = `${cleanUsername} dice: ${textToSpeak}`;
+  const fullText = cleanUsername ? `${cleanUsername} dice: ${textToSpeak}` : textToSpeak;
 
   logger.debug({ guildId: message.guildId, text: fullText }, "TTS: nuovo messaggio da leggere");
 
