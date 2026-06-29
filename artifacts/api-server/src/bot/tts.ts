@@ -15,6 +15,7 @@ import { loadConfig, saveConfig, type GuildTTSConfig } from "./storage.js";
 import { Readable } from "node:stream";
 import https from "node:https";
 import prism from "prism-media";
+import { spawn } from "node:child_process";
 
 // Map per tenere traccia delle connessioni vocali per ogni guild
 const connections: Map<string, VoiceConnection> = new Map();
@@ -207,14 +208,31 @@ async function playFromQueue(
     logger.info({ guildId, text, bufferSize: mp3Buffer.length }, "TTS: buffer audio creato");
 
     // Crea un Readable da Buffer
-    const stream = Readable.from(mp3Buffer);
-    logger.info({ guildId, text }, "TTS: stream creato, crea risorsa");
+    const mp3Stream = Readable.from(mp3Buffer);
+    logger.info({ guildId, text }, "TTS: stream MP3 creato");
 
-    // Crea la risorsa audio
-    const resource = createAudioResource(stream, {
-      inlineVolume: true,
+    // Usa prism-media + FFmpeg per convertire l'MP3 nel formato giusto per Discord
+    const transcoder = new prism.FFmpeg({
+      args: [
+        "-analyzeduration", "0",
+        "-loglevel", "0",
+        "-f", "s16le",
+        "-ar", "48000",
+        "-ac", "2"
+      ]
     });
-    logger.info({ guildId, text }, "TTS: risorsa audio creata");
+
+    logger.info({ guildId, text }, "TTS: avvio transcodifica con FFmpeg");
+
+    // Invia lo stream MP3 attraverso FFmpeg
+    const pcmStream = mp3Stream.pipe(transcoder);
+
+    // Crea la risorsa audio dal PCM
+    const resource = createAudioResource(pcmStream, {
+      inputType: StreamType.Raw,
+      inlineVolume: true
+    });
+    logger.info({ guildId, text }, "TTS: risorsa audio creata da PCM");
 
     // Ottieni il player
     const player = players.get(guildId);
@@ -224,7 +242,10 @@ async function playFromQueue(
       return;
     }
 
-    // Aggiungi listener per gli errori del player
+    // Aggiungi listener per gli errori
+    transcoder.on("error", (err) => {
+      logger.error({ err, guildId }, "TTS: ERRORE TRANSCODER FFmpeg");
+    });
     player.on("error", (err) => {
       logger.error({ err, guildId }, "TTS: ERRORE PLAYER DURANTE RIPRODUZIONE");
     });
