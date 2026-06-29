@@ -36,31 +36,25 @@ function removeEmojis(str: string): string {
 async function textToMp3Stream(text: string, lang: string = "it"): Promise<Readable> {
   return new Promise((resolve, reject) => {
     try {
+      // @ts-ignore - gTTS library types might be incomplete
       const gtts = new gTTS(text, lang);
+      // @ts-ignore - gTTS library types might be incomplete
+      const stream = gtts.stream() as Readable;
       const chunks: Buffer[] = [];
 
-      // @ts-ignore - gTTS library types might be incomplete
-      gtts.stream((err, stream) => {
-        if (err) {
-          logger.error({ err, text }, "Errore nella generazione audio TTS");
-          reject(err);
-          return;
-        }
+      stream.on('data', (chunk: Buffer) => {
+        chunks.push(chunk);
+      });
 
-        stream.on('data', (chunk: Buffer) => {
-          chunks.push(chunk);
-        });
+      stream.on('end', () => {
+        const buffer = Buffer.concat(chunks);
+        const readableStream = Readable.from(buffer);
+        resolve(readableStream);
+      });
 
-        stream.on('end', () => {
-          const buffer = Buffer.concat(chunks);
-          const readableStream = Readable.from(buffer);
-          resolve(readableStream);
-        });
-
-        stream.on('error', (streamErr: Error) => {
-          logger.error({ err: streamErr, text }, "Errore nello stream TTS");
-          reject(streamErr);
-        });
+      stream.on('error', (err: Error) => {
+        logger.error({ err, text }, "Errore nella generazione audio TTS");
+        reject(err);
       });
     } catch (err) {
       logger.error({ err, text }, "Errore nella funzione textToMp3Stream");
