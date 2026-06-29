@@ -7,12 +7,14 @@ import {
   AudioPlayerStatus,
   NoSubscriberBehavior,
   VoiceConnectionStatus,
+  StreamType,
 } from "@discordjs/voice";
 import { GuildMember, TextChannel, VoiceChannel, Client, VoiceState } from "discord.js";
 import { logger } from "../lib/logger.js";
 import { loadConfig, saveConfig, type GuildTTSConfig } from "./storage.js";
 import { Readable } from "node:stream";
 import https from "node:https";
+import prism from "prism-media";
 
 // Map per tenere traccia delle connessioni vocali per ogni guild
 const connections: Map<string, VoiceConnection> = new Map();
@@ -202,9 +204,9 @@ async function playFromQueue(
 
     // Genera l'audio
     const mp3Stream = await textToMp3Stream(text, lang);
-    logger.debug({ guildId, text }, "TTS: stream audio generato");
+    logger.info({ guildId, text }, "TTS: stream audio generato, crea risorsa");
 
-    // Crea la risorsa audio
+    // Crea la risorsa audio senza specificare il tipo (default è Raw)
     const resource = createAudioResource(mp3Stream, {
       inlineVolume: true,
     });
@@ -217,12 +219,17 @@ async function playFromQueue(
       return;
     }
 
+    // Aggiungi listener per gli errori del player
+    player.on("error", (err) => {
+      logger.error({ err, guildId }, "TTS: ERRORE PLAYER DURANTE RIPRODUZIONE");
+    });
+
     // Riproduci
     player.play(resource);
+    logger.info({ guildId, text }, "TTS: play() chiamato");
 
-    logger.info({ guildId, text }, "TTS: riproduzione avviata");
   } catch (err) {
-    logger.error({ err, guildId, text }, "TTS: errore durante la riproduzione");
+    logger.error({ err, guildId, text }, "TTS: errore durante playFromQueue");
     isPlaying.set(guildId, false);
   }
 }
