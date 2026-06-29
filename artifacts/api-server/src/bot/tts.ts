@@ -234,7 +234,13 @@ async function playFromQueue(
     logger.info({ guildId, text }, "TTS: play() chiamato");
 
   } catch (err) {
-    logger.error(err, "TTS: errore durante playFromQueue");
+    logger.error({
+      err: err,
+      message: (err as Error)?.message,
+      stack: (err as Error)?.stack,
+      guildId,
+      text,
+    }, "TTS: errore durante playFromQueue");
     isPlaying.set(guildId, false);
   }
 }
