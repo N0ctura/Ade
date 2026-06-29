@@ -35,7 +35,7 @@ function removeEmojis(str: string): string {
 /**
  * Converte un testo in audio MP3 usando Google Translate TTS API
  */
-async function textToMp3Stream(text: string, lang: string = "it"): Promise<Readable> {
+async function textToMp3Buffer(text: string, lang: string = "it"): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     try {
       logger.info({ text, lang }, "TTS: creazione stream audio");
@@ -68,13 +68,12 @@ async function textToMp3Stream(text: string, lang: string = "it"): Promise<Reada
         });
 
         res.on("end", () => {
+          const buffer = Buffer.concat(chunks);
           logger.info(
-            { totalSize: chunks.reduce((sum, b) => sum + b.length, 0) },
+            { totalSize: buffer.length },
             "TTS: stream completato"
           );
-          const buffer = Buffer.concat(chunks);
-          const readableStream = Readable.from(buffer);
-          resolve(readableStream);
+          resolve(buffer);
         });
 
         res.on("error", (err) => {
@@ -201,15 +200,21 @@ async function playFromQueue(
 ): Promise<void> {
   try {
     isPlaying.set(guildId, true);
+    logger.info({ guildId, text }, "TTS: playFromQueue iniziato");
 
-    // Genera l'audio
-    const mp3Stream = await textToMp3Stream(text, lang);
-    logger.info({ guildId, text }, "TTS: stream audio generato, crea risorsa");
+    // Genera l'audio come Buffer
+    const mp3Buffer = await textToMp3Buffer(text, lang);
+    logger.info({ guildId, text, bufferSize: mp3Buffer.length }, "TTS: buffer audio creato");
 
-    // Crea la risorsa audio senza specificare il tipo (default è Raw)
-    const resource = createAudioResource(mp3Stream, {
+    // Crea un Readable da Buffer
+    const stream = Readable.from(mp3Buffer);
+    logger.info({ guildId, text }, "TTS: stream creato, crea risorsa");
+
+    // Crea la risorsa audio
+    const resource = createAudioResource(stream, {
       inlineVolume: true,
     });
+    logger.info({ guildId, text }, "TTS: risorsa audio creata");
 
     // Ottieni il player
     const player = players.get(guildId);
@@ -229,7 +234,7 @@ async function playFromQueue(
     logger.info({ guildId, text }, "TTS: play() chiamato");
 
   } catch (err) {
-    logger.error({ err, guildId, text }, "TTS: errore durante playFromQueue");
+    logger.error(err, "TTS: errore durante playFromQueue");
     isPlaying.set(guildId, false);
   }
 }
