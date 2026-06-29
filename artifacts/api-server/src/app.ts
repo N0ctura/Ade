@@ -1,4 +1,4 @@
-import express, { type Express } from "express";
+import express, { type Express, type Request, type Response } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
 import path from "path";
@@ -30,19 +30,24 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// API routes
 app.use("/api", router);
 
-// Serve the React dashboard static files from the working directory
-const dashboardBuildPath = path.resolve(process.cwd(), "dashboard/build");
-app.use(express.static(dashboardBuildPath));
+// Serve the React dashboard static build
+// __dirname is set by the build banner to the directory of the running bundle
+// (artifacts/api-server/dist), so we resolve up to the repo root then into
+// dashboard/build where Vite outputs the compiled React app.
+const dashboardBuildDir = path.resolve(__dirname, "../../../dashboard/build");
+app.use(express.static(dashboardBuildDir));
 
-// For any routes that don't match API, send back the React index.html
-app.use((req, res, next) => {
-  if (!req.url.startsWith("/api")) {
-    res.sendFile(path.resolve(dashboardBuildPath, "index.html"));
-  } else {
-    next();
+// SPA fallback — any route not matched by the API or a static file gets
+// index.html so that React Router can handle client-side navigation.
+app.use((req: Request, res: Response) => {
+  if (req.path.startsWith("/api")) {
+    res.status(404).json({ error: "Not found" });
+    return;
   }
+  res.sendFile(path.join(dashboardBuildDir, "index.html"));
 });
 
 export default app;
