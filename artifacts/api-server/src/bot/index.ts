@@ -11,6 +11,7 @@ import {
   type Message,
   type TextChannel,
   type GuildMember,
+  type VoiceState,
 } from "discord.js";
 import { logger } from "../lib/logger.js";
 import * as sondaggioCommand from "./commands/sondaggio.js";
@@ -24,7 +25,7 @@ import { fetchPlayerByUsername, fetchClanById } from "./wolvesville.js";
 import { generateProfileCard } from "./profile-card.js";
 import { handleMemberJoin, handleMemberLeave } from "./welcome-leave.js";
 import { setDiscordClient } from "./discord-api.js";
-import { handleMessageForTTS } from "./tts.js";
+import { handleMessageForTTS, handleVoiceStateUpdate } from "./tts.js";
 
 type BotCommand = typeof sondaggioCommand | typeof impostazioniCommand | typeof debugTempliCommand | typeof fineCommand;
 
@@ -68,8 +69,9 @@ export async function startBot(): Promise<void> {
       GatewayIntentBits.GuildMessages,
       GatewayIntentBits.GuildMembers,
       GatewayIntentBits.MessageContent,
+      GatewayIntentBits.GuildVoiceStates,
     ],
-    partials: [Partials.Message, Partials.Channel, Partials.GuildMember],
+    partials: [Partials.Message, Partials.Channel, Partials.GuildMember, Partials.VoiceState],
   });
 
   client.once("ready", async (c) => {
@@ -270,6 +272,7 @@ export async function startBot(): Promise<void> {
         channelId: message.channel.id,
         content,
         member: message.member as GuildMember,
+        client,
       });
     }
 
@@ -394,6 +397,10 @@ export async function startBot(): Promise<void> {
       logger.error({ err, username }, "Errore ricerca giocatore");
       await message.reply({ content: "❌ Errore durante la ricerca del giocatore. Riprova più tardi." });
     }
+  });
+
+  client.on("voiceStateUpdate", async (oldState: VoiceState, newState: VoiceState) => {
+    await handleVoiceStateUpdate(oldState, newState);
   });
 
   client.on("error", (err) => { logger.error({ err }, "Errore client Discord"); });

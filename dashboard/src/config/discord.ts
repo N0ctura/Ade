@@ -1,11 +1,28 @@
 // Discord OAuth2 Configuration
-const DISCORD_CLIENT_ID = process.env.REACT_APP_DISCORD_CLIENT_ID;
-const DISCORD_REDIRECT_URI = process.env.REACT_APP_DISCORD_REDIRECT_URI || `${window.location.origin}/auth/callback`;
+let discordConfig = null;
 
-export const getDiscordAuthUrl = () => {
+export const fetchDiscordConfig = async () => {
+  if (discordConfig) return discordConfig;
+  
+  try {
+    const res = await fetch("/api/dashboard/config/discord");
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || "Failed to load Discord config");
+    }
+    discordConfig = await res.json();
+    return discordConfig;
+  } catch (err) {
+    console.error("Could not fetch Discord config:", err);
+    throw err;
+  }
+};
+
+export const getDiscordAuthUrl = async () => {
+  const config = await fetchDiscordConfig();
   const params = new URLSearchParams({
-    client_id: DISCORD_CLIENT_ID,
-    redirect_uri: DISCORD_REDIRECT_URI,
+    client_id: config.clientId,
+    redirect_uri: config.redirectUri,
     response_type: "code",
     scope: "identify guilds",
   });

@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   Home,
   MessageSquare,
@@ -23,9 +23,12 @@ import {
   Layers,
   CheckSquare,
   X,
-  Play
+  Play,
+  LogOut
 } from "lucide-react";
 import { BotStatus, CardConfig, CardLayer, LogEntry, ModuleConfig, DeletedModifiedLog } from "./types";
+import LoginTailwind from "./pages/LoginTailwind";
+import { isAuthenticated, removeAccessToken } from "./config/discord";
 
 // Default local variables for replacing preset text in live preview
 const replaceVars = (text: string, mockUsername = "N0ctura", memberCount = 412) => {
@@ -55,7 +58,7 @@ const CardCanvasPreview: React.FC<CardCanvasPreviewProps> = ({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
-  
+
   // Keep track of loaded images to avoid infinite load loops and flickering
   const imageCacheRef = useRef<Record<string, HTMLImageElement>>({});
   const [, forceUpdate] = useState({});
@@ -128,7 +131,7 @@ const CardCanvasPreview: React.FC<CardCanvasPreviewProps> = ({
         case "avatar":
           const avatarUrl = "https://cdn.discordapp.com/embed/avatars/0.png";
           let avatarImg = imageCacheRef.current[avatarUrl];
-          
+
           if (!avatarImg) {
             avatarImg = new Image();
             avatarImg.crossOrigin = "anonymous";
@@ -141,7 +144,7 @@ const CardCanvasPreview: React.FC<CardCanvasPreviewProps> = ({
 
           if (avatarImg && avatarImg.complete) {
             const radius = ((layer.borderRadius ?? 50) / 100) * Math.min(layer.width, layer.height);
-            
+
             // Draw rounded avatar clipping
             ctx.beginPath();
             if (radius === 0) {
@@ -151,7 +154,7 @@ const CardCanvasPreview: React.FC<CardCanvasPreviewProps> = ({
             }
             ctx.closePath();
             ctx.clip();
-            
+
             ctx.drawImage(avatarImg, layer.x, layer.y, layer.width, layer.height);
             ctx.restore();
             ctx.save();
@@ -202,7 +205,7 @@ const CardCanvasPreview: React.FC<CardCanvasPreviewProps> = ({
         ctx.lineWidth = 2;
         ctx.setLineDash([6, 4]);
         ctx.strokeRect(layer.x, layer.y, layer.width, layer.height);
-        
+
         // Draw little handles
         ctx.fillStyle = "#5865F2";
         ctx.fillRect(layer.x - 4, layer.y - 4, 8, 8);
@@ -220,7 +223,7 @@ const CardCanvasPreview: React.FC<CardCanvasPreviewProps> = ({
     if (!canvasRef.current || !cardConfig) return null;
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
-    
+
     // Convert click coordinates to canvas logical scale
     const scaledX = ((x - rect.left) / rect.width) * cardConfig.width;
     const scaledY = ((y - rect.top) / rect.height) * cardConfig.height;
@@ -296,8 +299,17 @@ const CardCanvasPreview: React.FC<CardCanvasPreviewProps> = ({
 
 // Main App
 export default function App() {
+  if (!isAuthenticated()) {
+    return <LoginTailwind />;
+  }
+
+  const handleLogout = () => {
+    removeAccessToken();
+    window.location.href = "/";
+  };
+
   const [activeTab, setActiveTab] = useState<"home" | "welcome" | "leave" | "autorole" | "messages" | "voice" | "logs">("home");
-  
+
   // Server Status & Logs state
   const [botStatus, setBotStatus] = useState<BotStatus>({
     online: true,
@@ -309,7 +321,7 @@ export default function App() {
     logs: [],
     repoUrl: "https://github.com/N0ctura/Ade"
   });
-  
+
   // Complete Configuration state
   const [configs, setConfigs] = useState<ModuleConfig>({
     welcome: {
@@ -386,7 +398,7 @@ export default function App() {
         const data = await statusRes.json();
         setBotStatus(data);
       }
-      
+
       const configRes = await fetch("/api/bot/config");
       if (configRes.ok) {
         const data = await configRes.json();
@@ -405,7 +417,7 @@ export default function App() {
 
   useEffect(() => {
     loadData();
-    
+
     // Set simulated clock for local UTC status
     const updateTime = () => {
       const now = new Date();
@@ -450,7 +462,7 @@ export default function App() {
   const updateActiveCardLayer = (section: "welcome" | "leave", updatedLayer: CardLayer) => {
     const card = configs[section].card;
     const updatedLayers = card.layers.map(l => l.id === updatedLayer.id ? updatedLayer : l);
-    
+
     setConfigs(prev => ({
       ...prev,
       [section]: {
@@ -466,7 +478,7 @@ export default function App() {
   const addCardLayer = (section: "welcome" | "leave", type: "image" | "text" | "avatar") => {
     const card = configs[section].card;
     const id = `${type}-${Date.now()}`;
-    
+
     let newLayer: CardLayer = {
       id,
       type,
@@ -536,9 +548,9 @@ export default function App() {
     const card = configs[section].card;
     const newLayers = [...card.layers];
     const targetIndex = direction === "up" ? index + 1 : index - 1;
-    
+
     if (targetIndex < 0 || targetIndex >= newLayers.length) return;
-    
+
     // Swap layers
     const temp = newLayers[index];
     newLayers[index] = newLayers[targetIndex];
@@ -601,7 +613,7 @@ export default function App() {
     setTimeout(async () => {
       setIsRestarting(false);
       showToast("AdeBot riavviato e connesso con successo!", "success");
-      
+
       // Update logs in server
       try {
         await fetch("/api/bot/status");
@@ -632,7 +644,7 @@ export default function App() {
         const data = await res.json();
         setDeletedModifiedLogs(data.logs);
         showToast(`Simulazione riuscita: Messaggio ${data.log.type === "deleted" ? "Eliminato" : "Modificato"}!`);
-        
+
         // Refresh console log list as well
         const statusRes = await fetch("/api/bot/status");
         if (statusRes.ok) {
@@ -667,14 +679,13 @@ export default function App() {
 
   return (
     <div className="flex h-screen bg-[#111214] text-neutral-200 overflow-hidden font-sans select-none">
-      
+
       {/* Toast Alert Banner */}
       {toastMessage && (
-        <div className={`fixed bottom-6 right-6 z-50 flex items-center gap-3 px-5 py-4 rounded-xl border shadow-2xl transition-all duration-300 animate-slide-up ${
-          toastMessage.type === "success" 
-            ? "bg-emerald-950/90 border-emerald-500/40 text-emerald-300" 
-            : "bg-rose-950/90 border-rose-500/40 text-rose-300"
-        }`}>
+        <div className={`fixed bottom-6 right-6 z-50 flex items-center gap-3 px-5 py-4 rounded-xl border shadow-2xl transition-all duration-300 animate-slide-up ${toastMessage.type === "success"
+          ? "bg-emerald-950/90 border-emerald-500/40 text-emerald-300"
+          : "bg-rose-950/90 border-rose-500/40 text-rose-300"
+          }`}>
           <div className={`w-2 h-2 rounded-full ${toastMessage.type === "success" ? "bg-emerald-400" : "bg-rose-400"}`} />
           <span className="text-sm font-medium">{toastMessage.text}</span>
           <button className="text-neutral-400 hover:text-white ml-2" onClick={() => setToastMessage(null)}>
@@ -689,9 +700,9 @@ export default function App() {
           {/* Brand Identity Header */}
           <div className="p-6 border-b border-neutral-900 bg-neutral-950/20 flex flex-col gap-3">
             <div className="flex items-center gap-3">
-              <img 
-                src="https://raw.githubusercontent.com/N0ctura/Ade/main/dashboard/public/celestial-logo-slim.png" 
-                alt="Celestial Logo" 
+              <img
+                src="https://raw.githubusercontent.com/N0ctura/Ade/main/dashboard/public/celestial-logo-slim.png"
+                alt="Celestial Logo"
                 className="h-9 w-auto object-contain rounded"
                 referrerPolicy="no-referrer"
               />
@@ -716,11 +727,10 @@ export default function App() {
             </span>
             <button
               onClick={() => { setActiveTab("home"); setSelectedLayerId(null); }}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all ${
-                activeTab === "home"
-                  ? "bg-[#5865F2] text-white font-semibold"
-                  : "text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-200"
-              }`}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all ${activeTab === "home"
+                ? "bg-[#5865F2] text-white font-semibold"
+                : "text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-200"
+                }`}
             >
               <Home className="w-4 h-4" />
               <span>Dashboard Casa</span>
@@ -731,33 +741,30 @@ export default function App() {
             </span>
             <button
               onClick={() => { setActiveTab("welcome"); setSelectedLayerId(null); }}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all ${
-                activeTab === "welcome"
-                  ? "bg-[#5865F2] text-white font-semibold"
-                  : "text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-200"
-              }`}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all ${activeTab === "welcome"
+                ? "bg-[#5865F2] text-white font-semibold"
+                : "text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-200"
+                }`}
             >
               <Plus className="w-4 h-4 text-emerald-400" />
               <span>Messaggio Welcome</span>
             </button>
             <button
               onClick={() => { setActiveTab("leave"); setSelectedLayerId(null); }}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all ${
-                activeTab === "leave"
-                  ? "bg-[#5865F2] text-white font-semibold"
-                  : "text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-200"
-              }`}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all ${activeTab === "leave"
+                ? "bg-[#5865F2] text-white font-semibold"
+                : "text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-200"
+                }`}
             >
               <Trash2 className="w-4 h-4 text-rose-400" />
               <span>Messaggio Leave</span>
             </button>
             <button
               onClick={() => { setActiveTab("autorole"); setSelectedLayerId(null); }}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all ${
-                activeTab === "autorole"
-                  ? "bg-[#5865F2] text-white font-semibold"
-                  : "text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-200"
-              }`}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all ${activeTab === "autorole"
+                ? "bg-[#5865F2] text-white font-semibold"
+                : "text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-200"
+                }`}
             >
               <Shield className="w-4 h-4 text-amber-400" />
               <span>Auto Ruolo automatico</span>
@@ -768,33 +775,30 @@ export default function App() {
             </span>
             <button
               onClick={() => { setActiveTab("messages"); setSelectedLayerId(null); }}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all ${
-                activeTab === "messages"
-                  ? "bg-[#5865F2] text-white font-semibold"
-                  : "text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-200"
-              }`}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all ${activeTab === "messages"
+                ? "bg-[#5865F2] text-white font-semibold"
+                : "text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-200"
+                }`}
             >
               <Clock className="w-4 h-4 text-purple-400" />
               <span>Messaggi Automatici</span>
             </button>
             <button
               onClick={() => { setActiveTab("voice"); setSelectedLayerId(null); }}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all ${
-                activeTab === "voice"
-                  ? "bg-[#5865F2] text-white font-semibold"
-                  : "text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-200"
-              }`}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all ${activeTab === "voice"
+                ? "bg-[#5865F2] text-white font-semibold"
+                : "text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-200"
+                }`}
             >
               <Volume2 className="w-4 h-4 text-cyan-400" />
               <span>Lettore Vocale TTS</span>
             </button>
             <button
               onClick={() => { setActiveTab("logs"); setSelectedLayerId(null); }}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all ${
-                activeTab === "logs"
-                  ? "bg-[#5865F2] text-white font-semibold"
-                  : "text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-200"
-              }`}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all ${activeTab === "logs"
+                ? "bg-[#5865F2] text-white font-semibold"
+                : "text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-200"
+                }`}
             >
               <Activity className="w-4 h-4 text-rose-400" />
               <span>Log Messaggi</span>
@@ -821,7 +825,7 @@ export default function App() {
 
       {/* Main Content Area Container */}
       <main className="flex-1 bg-[#313338] overflow-y-auto flex flex-col">
-        
+
         {/* Upper Dashboard Sub-Header */}
         <header className="bg-[#313338] px-8 py-5 border-b border-[#202225] flex justify-between items-center shrink-0 shadow-sm">
           <div>
@@ -853,24 +857,31 @@ export default function App() {
             <span className="text-xs font-mono font-bold text-neutral-300 bg-neutral-950/30 px-3 py-1.5 rounded-lg border border-neutral-800">
               {botStatus.platform} Host
             </span>
+            <button
+              onClick={handleLogout}
+              className="p-2 hover:bg-neutral-800 rounded-lg transition-colors"
+              title="Logout"
+            >
+              <LogOut className="w-4 h-4 text-neutral-400 hover:text-rose-400" />
+            </button>
           </div>
         </header>
 
         {/* Inner Content Grid */}
         <div className="p-8 flex-1">
-          
+
           {/* TAB: HOME */}
           {activeTab === "home" && (
             <div className="space-y-8 animate-fade-in">
-              
+
               {/* Brand Banner */}
               <div className="relative bg-gradient-to-r from-neutral-900 to-[#1e1f22] border border-neutral-800 rounded-2xl p-8 overflow-hidden shadow-xl flex flex-col md:flex-row items-center gap-6 justify-between">
                 <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/5 rounded-full blur-3xl pointer-events-none" />
                 <div className="flex items-center gap-5">
                   <div className="bg-neutral-950/40 p-3 rounded-2xl border border-neutral-800">
-                    <img 
-                      src="https://raw.githubusercontent.com/N0ctura/Ade/main/dashboard/public/celestial-logo.png" 
-                      alt="Celestial Logo" 
+                    <img
+                      src="https://raw.githubusercontent.com/N0ctura/Ade/main/dashboard/public/celestial-logo.png"
+                      alt="Celestial Logo"
                       className="w-20 h-20 object-contain rounded-xl"
                       referrerPolicy="no-referrer"
                     />
@@ -926,7 +937,7 @@ export default function App() {
 
               {/* Quick Config modules grid */}
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                
+
                 {/* Active Modules summary card */}
                 <div className="bg-[#2b2d31] border border-neutral-800 rounded-xl overflow-hidden shadow-lg lg:col-span-1">
                   <div className="px-5 py-4 border-b border-neutral-800 bg-neutral-900/20 flex justify-between items-center">
@@ -1014,7 +1025,7 @@ export default function App() {
           {(activeTab === "welcome" || activeTab === "leave") && (
             <div className="space-y-8 animate-fade-in">
               <div className="bg-[#2b2d31] border border-neutral-800 rounded-xl p-6 shadow-lg space-y-6">
-                
+
                 {/* Enable module toggle */}
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-4 bg-neutral-900/20 border border-neutral-800 rounded-lg">
                   <div>
@@ -1080,7 +1091,7 @@ export default function App() {
 
                 {/* VISUAL LAYERS EDITOR & PREVIEWER */}
                 <div className="grid grid-cols-1 xl:grid-cols-12 gap-8 pt-4 border-t border-neutral-800/80">
-                  
+
                   {/* Canvas interactive Area */}
                   <div className="xl:col-span-8 space-y-4">
                     <div className="flex justify-between items-center">
@@ -1126,14 +1137,14 @@ export default function App() {
 
                   {/* Layers control sidebars */}
                   <div className="xl:col-span-4 space-y-6">
-                    
+
                     {/* Layer List panel */}
                     <div className="bg-neutral-900/40 border border-neutral-800 p-4 rounded-xl space-y-4">
                       <div className="flex justify-between items-center">
                         <h4 className="text-xs font-bold text-neutral-400 uppercase">Oggetti Grafici</h4>
                         <span className="text-[10px] bg-neutral-800 px-2 py-0.5 rounded text-neutral-400 font-mono">Render list</span>
                       </div>
-                      
+
                       <div className="space-y-1.5 max-h-[160px] overflow-y-auto">
                         {[...configs[activeTab].card.layers].reverse().map((layer, index) => {
                           const originalIndex = configs[activeTab].card.layers.length - 1 - index;
@@ -1142,17 +1153,16 @@ export default function App() {
                             <div
                               key={layer.id}
                               onClick={() => setSelectedLayerId(layer.id)}
-                              className={`flex items-center justify-between p-2 rounded-lg cursor-pointer transition-all ${
-                                isSelected 
-                                  ? "bg-indigo-600 text-white font-semibold shadow-md shadow-indigo-600/10" 
-                                  : "bg-[#2b2d31]/80 text-neutral-300 hover:bg-[#2b2d31]"
-                              }`}
+                              className={`flex items-center justify-between p-2 rounded-lg cursor-pointer transition-all ${isSelected
+                                ? "bg-indigo-600 text-white font-semibold shadow-md shadow-indigo-600/10"
+                                : "bg-[#2b2d31]/80 text-neutral-300 hover:bg-[#2b2d31]"
+                                }`}
                             >
                               <div className="flex items-center gap-2">
                                 {layer.visible ? <Eye className="w-3.5 h-3.5 opacity-80" /> : <EyeOff className="w-3.5 h-3.5 opacity-40" />}
                                 <span className="text-xs truncate font-mono">{layer.type} ({layer.id})</span>
                               </div>
-                              
+
                               {layer.type !== "background" && (
                                 <div className="flex items-center gap-1 shrink-0">
                                   <button
@@ -1201,7 +1211,7 @@ export default function App() {
                     {/* Specific properties editor */}
                     <div className="bg-neutral-900/40 border border-neutral-800 p-4 rounded-xl space-y-4">
                       <h4 className="text-xs font-bold text-neutral-400 uppercase">Proprietà Layer Attivo</h4>
-                      
+
                       {selectedLayerId ? (
                         (() => {
                           const layer = configs[activeTab].card.layers.find(l => l.id === selectedLayerId);
@@ -1359,7 +1369,7 @@ export default function App() {
           {activeTab === "autorole" && (
             <div className="space-y-8 animate-fade-in">
               <div className="bg-[#2b2d31] border border-neutral-800 rounded-xl p-6 shadow-lg space-y-6">
-                
+
                 {/* AutoRole Enabled card */}
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-4 bg-neutral-900/20 border border-neutral-800 rounded-lg">
                   <div>
@@ -1383,7 +1393,7 @@ export default function App() {
                 <div className="space-y-3">
                   <h4 className="text-xs font-bold text-neutral-400 uppercase">Ruoli del Server Discord</h4>
                   <p className="text-xs text-neutral-500">Seleziona i ruoli che verranno assegnati ai nuovi membri:</p>
-                  
+
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {[
                       { id: "112233445566778801", name: "Membro", color: "text-blue-400 bg-blue-950/20 border-blue-900/50" },
@@ -1402,11 +1412,10 @@ export default function App() {
                               : [...configs.autoRole.roleIds, role.id];
                             saveSection("autoRole", { ...configs.autoRole, roleIds: updatedList }, "Ruoli aggiornati!");
                           }}
-                          className={`flex items-center justify-between p-4 rounded-xl border cursor-pointer transition-all ${
-                            isSelected 
-                              ? `${role.color} ring-1 ring-indigo-500/20`
-                              : "bg-neutral-900/40 border-neutral-800/80 text-neutral-400 hover:bg-neutral-900"
-                          } ${!configs.autoRole.enabled ? "opacity-50 cursor-not-allowed" : ""}`}
+                          className={`flex items-center justify-between p-4 rounded-xl border cursor-pointer transition-all ${isSelected
+                            ? `${role.color} ring-1 ring-indigo-500/20`
+                            : "bg-neutral-900/40 border-neutral-800/80 text-neutral-400 hover:bg-neutral-900"
+                            } ${!configs.autoRole.enabled ? "opacity-50 cursor-not-allowed" : ""}`}
                         >
                           <div className="flex items-center gap-3">
                             <div className="w-2.5 h-2.5 rounded-full bg-current" />
@@ -1428,14 +1437,14 @@ export default function App() {
           {activeTab === "messages" && (
             <div className="space-y-8 animate-fade-in">
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-                
+
                 {/* Add/Create loop message */}
                 <div className="lg:col-span-5 bg-[#2b2d31] border border-neutral-800 p-6 rounded-xl shadow-lg space-y-6">
                   <h3 className="text-base font-bold text-white flex items-center gap-2">
                     <Clock className="w-5 h-5 text-indigo-400" />
                     <span>Nuovo Messaggio Automatico</span>
                   </h3>
-                  
+
                   <form onSubmit={handleAddScheduledMessage} className="space-y-4">
                     <div className="space-y-1.5">
                       <label className="text-xs font-bold text-neutral-400 uppercase">Canale Discord di Destinazione</label>
@@ -1455,7 +1464,7 @@ export default function App() {
                         <option value="112233445566778810">#log-messaggi</option>
                         <option value="custom">✍️ Inserisci ID Canale Personalizzato...</option>
                       </select>
-                      
+
                       {(schedChannel !== "112233445566778805" && schedChannel !== "112233445566778899" && schedChannel !== "112233445566778810") && (
                         <div className="pt-2 animate-fade-in">
                           <input
@@ -1483,7 +1492,7 @@ export default function App() {
                         <option value="weekly">Ogni settimana</option>
                         <option value="custom">⏱️ Intervallo Personalizzato...</option>
                       </select>
-                      
+
                       {schedInterval === "custom" && (
                         <div className="pt-2 animate-fade-in">
                           <input
@@ -1551,9 +1560,9 @@ export default function App() {
                               </span>
                               <span className="text-xs text-indigo-400 font-bold font-mono">
                                 {msg.channelId === "112233445566778805" ? "#comandi-bot" :
-                                 msg.channelId === "112233445566778899" ? "#generale" :
-                                 msg.channelId === "112233445566778810" ? "#log-messaggi" :
-                                 msg.channelId.startsWith("#") ? msg.channelId : `#canale-${msg.channelId}`}
+                                  msg.channelId === "112233445566778899" ? "#generale" :
+                                    msg.channelId === "112233445566778810" ? "#log-messaggi" :
+                                      msg.channelId.startsWith("#") ? msg.channelId : `#canale-${msg.channelId}`}
                               </span>
                             </div>
                             <button
@@ -1582,7 +1591,7 @@ export default function App() {
           {activeTab === "voice" && (
             <div className="space-y-8 animate-fade-in">
               <div className="bg-[#2b2d31] border border-neutral-800 rounded-xl p-6 shadow-lg space-y-6">
-                
+
                 {/* TTS enabled block */}
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-4 bg-neutral-900/20 border border-neutral-800 rounded-lg">
                   <div>
@@ -1604,7 +1613,7 @@ export default function App() {
 
                 {/* Configuration controls */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  
+
                   <div className="space-y-2">
                     <label className="text-xs font-bold text-neutral-400 uppercase">Canale Testuale (Sorgente)</label>
                     <select
@@ -1672,13 +1681,13 @@ export default function App() {
 
               </div>
             </div>
-             )}
- 
+          )}
+
           {/* TAB: LOGS */}
           {activeTab === "logs" && (
             <div className="space-y-8 animate-fade-in">
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-                
+
                 {/* Configuration Panel */}
                 <div className="lg:col-span-5 bg-[#2b2d31] border border-neutral-800 p-6 rounded-xl shadow-lg space-y-6">
                   <h3 className="text-base font-bold text-white flex items-center gap-2">
@@ -1722,7 +1731,7 @@ export default function App() {
                         <option value="112233445566778899">#generale</option>
                         <option value="custom">✍️ Inserisci ID Canale Personalizzato...</option>
                       </select>
-                      
+
                       {(configs.logsConfig.channelId !== "112233445566778810" && configs.logsConfig.channelId !== "112233445566778805" && configs.logsConfig.channelId !== "112233445566778899") && (
                         <div className="pt-2">
                           <input
@@ -1747,7 +1756,7 @@ export default function App() {
                     {/* Filter targets: App / Bots and Users */}
                     <div className="space-y-3">
                       <label className="text-xs font-bold text-neutral-400 uppercase">Tracciamento Filtri Target</label>
-                      
+
                       <div className="flex items-center justify-between p-3 bg-neutral-900/40 border border-neutral-800/80 rounded-lg">
                         <div className="flex flex-col">
                           <span className="text-xs font-semibold text-neutral-300">Intercetta Modifiche/Eliminazioni di Altri Bot</span>
@@ -1786,7 +1795,7 @@ export default function App() {
                   <div className="pt-4 border-t border-neutral-800 space-y-3">
                     <h4 className="text-xs font-bold text-neutral-400 uppercase">Simulatore Eventi Live</h4>
                     <p className="text-[10px] text-neutral-500">Simula l'intercettazione in background di un evento Discord per vedere l'embed generato in tempo reale.</p>
-                    
+
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <button
                         onClick={handleSimulateDeletedModified}
@@ -1832,16 +1841,15 @@ export default function App() {
                     <div className="space-y-4 max-h-[600px] overflow-y-auto pr-1">
                       {deletedModifiedLogs.map((log) => {
                         const isDeleted = log.type === "deleted";
-                        
+
                         // Parse simple text into words highlight:
                         // Deleted (Red) -> Red tags
                         // Modified -> OLD (Red/strikethrough) vs NEW (Green)
                         return (
                           <div
                             key={log.id}
-                            className={`p-4 bg-[#1e1f22] rounded-lg border-l-4 shadow-md ${
-                              isDeleted ? "border-l-[#ed4245]" : "border-l-[#57f287]"
-                            } space-y-3 hover:bg-[#1e1f22]/80 transition-colors`}
+                            className={`p-4 bg-[#1e1f22] rounded-lg border-l-4 shadow-md ${isDeleted ? "border-l-[#ed4245]" : "border-l-[#57f287]"
+                              } space-y-3 hover:bg-[#1e1f22]/80 transition-colors`}
                           >
                             {/* Author & Header */}
                             <div className="flex items-center justify-between">
@@ -1868,8 +1876,8 @@ export default function App() {
                               </div>
                               <span className="text-[10px] font-mono text-indigo-400 bg-neutral-950/40 border border-neutral-800 px-2.5 py-1 rounded">
                                 {log.channel === "112233445566778899" ? "#generale" :
-                                 log.channel === "112233445566778805" ? "#comandi-bot" :
-                                 log.channel === "112233445566778810" ? "#log-messaggi" : `#canale-${log.channel.slice(-4)}`}
+                                  log.channel === "112233445566778805" ? "#comandi-bot" :
+                                    log.channel === "112233445566778810" ? "#log-messaggi" : `#canale-${log.channel.slice(-4)}`}
                               </span>
                             </div>
 
@@ -1925,11 +1933,10 @@ export default function App() {
                                         return (
                                           <span
                                             key={i}
-                                            className={`inline-block px-1 py-0.5 rounded font-mono text-[11px] mr-1.5 my-0.5 ${
-                                              isChanged 
-                                                ? "bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/40 scale-105" 
-                                                : "bg-neutral-800 text-neutral-300 border border-neutral-700/60"
-                                            }`}
+                                            className={`inline-block px-1 py-0.5 rounded font-mono text-[11px] mr-1.5 my-0.5 ${isChanged
+                                              ? "bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/40 scale-105"
+                                              : "bg-neutral-800 text-neutral-300 border border-neutral-700/60"
+                                              }`}
                                           >
                                             {word}
                                           </span>

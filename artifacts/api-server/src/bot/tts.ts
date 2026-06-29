@@ -8,18 +8,17 @@ import {
   NoSubscriberBehavior,
   VoiceConnectionStatus,
 } from "@discordjs/voice";
-import { GuildMember, TextChannel, VoiceChannel, Client } from "discord.js";
+import { GuildMember, TextChannel, VoiceChannel, Client, VoiceState } from "discord.js";
 import { logger } from "../lib/logger.js";
-import { loadConfig, saveConfig, GuildTTSConfig } from "./storage.js";
 import gTTS from "gtts";
 import { Readable } from "node:stream";
-import { pipeline } from "node:stream/promises";
 
 // Map per tenere traccia delle connessioni vocali per ogni guild
 const connections: Map<string, VoiceConnection> = new Map();
 const players: Map<string, AudioPlayer> = new Map();
 const queues: Map<string, string[]> = new Map();
 const isPlaying: Map<string, boolean> = new Map();
+const activeVoiceChannels: Map<string, string> = new Map(); // guildId -> voiceChannelId
 
 /**
  * Rimuove le emoji da una stringa
@@ -64,23 +63,29 @@ async function textToMp3Stream(text: string, lang: string = "it"): Promise<Reada
 }
 
 /**
- * Riproduce un testo nel canale vocale configurato o in quello dell'utente
+ * Riproduce un testo nel canale vocale specificato
  */
-export async function playText(
-  member: GuildMember,
+export async function playTextInChannel(
+  guildId: string,
+  voiceChannelId: string,
   text: string,
   lang: string = "it",
-  forceVoiceChannelId?: string
+  client?: Client
 ): Promise<void> {
-  const guildId = member.guild.id;
-
-  // Ottieni il canale vocale: prima il configurato, poi quello dell'utente
-  let voiceChannel = forceVoiceChannelId
-    ? (member.guild.channels.cache.get(forceVoiceChannelId) as VoiceChannel)
-    : member.voice.channel;
-
+  if (!client) {
+    logger.error({ guildId }, "TTS: client Discord non disponibile");
+    return;
+  }
+  
+  const guild = client.guilds.cache.get(guildId);
+  if (!guild) {
+    logger.warn({ guildId }, "TTS: guild non trovata");
+    return;
+  }
+  
+  const voiceChannel = guild.channels.cache.get(voiceChannelId) as VoiceChannel;
   if (!voiceChannel) {
-    logger.warn({ guildId, userId: member.id }, "TTS: nessun canale vocale disponibile");
+    logger.warn({ guildId, voiceChannelId }, "TTS: canale vocale non trovato");
     return;
   }
 
@@ -92,9 +97,9 @@ export async function playText(
     connection = joinVoiceChannel({
       channelId: voiceChannel.id,
       guildId: guildId,
-      adapterCreator: member.guild.voiceAdapterCreator,
-      selfDeaf: false, // Non silenziare il bot
-      selfMute: false, // Non mutare il bot
+      adapterCreator: guild.voiceAdapterCreator,
+      selfDeaf: false,
+      selfMute: false,
     });
 
     // Attendi che la connessione sia pronta
@@ -102,7 +107,14 @@ export async function playText(
       logger.info({ guildId }, "TTS: connessione vocale pronta");
     });
 
+    connection.on(VoiceConnectionStatus.Disconnected, () => {
+      logger.info({ guildId }, "TTS: connessione vocale disconnessa");
+      connections.delete(guildId);
+      activeVoiceChannels.delete(guildId);
+    });
+
     connections.set(guildId, connection);
+    activeVoiceChannels.set(guildId, voiceChannelId);
     logger.info({ guildId, channelId: voiceChannel.id }, "TTS: connessione vocale creata");
   }
 
@@ -161,7 +173,7 @@ async function playFromQueue(
     
     // Crea la risorsa audio
     const resource = createAudioResource(mp3Stream, {
-      inlineVolume: true, // Permette di regolare il volume
+      inlineVolume: true,
     });
     
     // Ottieni il player
@@ -176,12 +188,6 @@ async function playFromQueue(
     player.play(resource);
     
     logger.info({ guildId, text }, "TTS: riproduzione avviata");
-    
-    // Ascolta lo stato di playing
-    player.once(AudioPlayerStatus.Playing, () => {
-      logger.info({ guildId }, "TTS: player in stato PLAYING");
-    });
-    
   } catch (err) {
     logger.error({ err, guildId, text }, "TTS: errore durante la riproduzione");
     isPlaying.set(guildId, false);
@@ -196,6 +202,7 @@ export function stopTTS(guildId: string): void {
   if (connection) {
     connection.destroy();
     connections.delete(guildId);
+    activeVoiceChannels.delete(guildId);
   }
   const player = players.get(guildId);
   if (player) {
@@ -208,41 +215,6 @@ export function stopTTS(guildId: string): void {
 }
 
 /**
- * Imposta la configurazione TTS per una guild
- */
-export function setTTSConfig(config: GuildTTSConfig): void {
-  const botConfig = loadConfig();
-  const ttsConfigs = botConfig.ttsConfigs || [];
-  const existingIndex = ttsConfigs.findIndex((c) => c.guildId === config.guildId);
-
-  if (existingIndex !== -1) {
-    ttsConfigs[existingIndex] = config;
-  } else {
-    ttsConfigs.push(config);
-  }
-
-  saveConfig({ ...botConfig, ttsConfigs });
-  logger.info({ guildId: config.guildId }, "TTS: configurazione salvata");
-}
-
-/**
- * Ottieni la configurazione TTS per una guild
- */
-export function getTTSConfig(guildId: string): GuildTTSConfig {
-  const botConfig = loadConfig();
-  const config = botConfig.ttsConfigs?.find((c) => c.guildId === guildId);
-  return {
-    guildId,
-    guildName: config?.guildName || "Unknown",
-    ttsSourceChannelId: config?.ttsSourceChannelId,
-    ttsVoiceChannelId: config?.ttsVoiceChannelId,
-    ttsEnabled: config?.ttsEnabled ?? false,
-    ttsLanguage: config?.ttsLanguage || "it",
-    ttsPrefixes: config?.ttsPrefixes || [",", ";", "!"],
-  };
-}
-
-/**
  * Gestisce l'arrivo di un nuovo messaggio per il TTS automatico
  */
 export async function handleMessageForTTS(message: {
@@ -250,52 +222,59 @@ export async function handleMessageForTTS(message: {
   channelId: string;
   content: string;
   member: GuildMember;
+  client: Client;
 }): Promise<void> {
-  const config = getTTSConfig(message.guildId);
-  if (!config?.ttsEnabled || config.ttsSourceChannelId !== message.channelId) {
+  // Solo messaggi che iniziano con !
+  if (!message.content.startsWith("!")) {
     return;
   }
 
-  // Non leggere i messaggi del bot stesso
-  if (message.member.user.bot) {
-    return;
-  }
-
-  // Se abbiamo dei prefissi configurati, verifica che il messaggio ne inizi con uno
-  let textToSpeak = message.content;
-  let hasPrefix = false;
-
-  if (config.ttsPrefixes && config.ttsPrefixes.length > 0) {
-    for (const prefix of config.ttsPrefixes) {
-      if (message.content.startsWith(prefix)) {
-        // Rimuovi il prefisso
-        textToSpeak = message.content.slice(prefix.length).trim();
-        hasPrefix = true;
-        break;
-      }
-    }
-    // Se abbiamo prefissi ma il messaggio non ne ha uno, ignoralo
-    if (!hasPrefix) {
-      return;
-    }
-  }
-
-  // Se non c'è testo da leggere, esci
+  // Rimuovi il prefisso
+  const textToSpeak = message.content.slice(1).trim();
   if (!textToSpeak) {
+    return;
+  }
+
+  // Controlla se l'utente è in un canale vocale
+  let voiceChannelId = message.member.voice.channelId;
+  
+  // Se l'utente non è in un canale vocale, controlla se il bot è già in uno
+  if (!voiceChannelId) {
+    voiceChannelId = activeVoiceChannels.get(message.guildId);
+  }
+
+  if (!voiceChannelId) {
+    logger.warn({ guildId: message.guildId, userId: message.member.id }, "TTS: nessun canale vocale disponibile");
     return;
   }
 
   // Pulisci il nome utente dalle emoji
   const cleanUsername = removeEmojis(message.member.displayName || message.member.user.username);
 
-  // Formatta il testo: "[Nome] dice: [Testo]"
+  // Formatta il testo
   const fullText = `${cleanUsername} dice: ${textToSpeak}`;
 
   logger.debug({ guildId: message.guildId, text: fullText }, "TTS: nuovo messaggio da leggere");
-  await playText(
-    message.member,
+  
+  await playTextInChannel(
+    message.guildId,
+    voiceChannelId,
     fullText,
-    config.ttsLanguage || "it",
-    config.ttsVoiceChannelId
+    "it",
+    message.client
   );
+}
+
+/**
+ * Gestisce i cambi di stato vocale (utenti che entrano/escono da canali vocali)
+ */
+export async function handleVoiceStateUpdate(oldState: VoiceState, newState: VoiceState): Promise<void> {
+  // Se l'utente è il bot, disconnettiamo se rimane solo
+  if (newState.member?.user.id === newState.client.user?.id) {
+    if (!newState.channelId && oldState.channelId) {
+      // Bot disconnesso
+      stopTTS(newState.guild.id);
+    }
+    return;
+  }
 }
