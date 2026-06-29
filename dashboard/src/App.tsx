@@ -313,6 +313,9 @@ export default function App() {
   // Server Selection (Server Picker)
   const [selectedGuildId, setSelectedGuildId] = useState<string | null>(null);
   const [guilds, setGuilds] = useState<any[]>([]);
+  const [channels, setChannels] = useState<any[]>([]);
+  const [voiceChannels, setVoiceChannels] = useState<any[]>([]);
+  const [roles, setRoles] = useState<any[]>([]);
 
   // Server Status & Logs state
   const [botStatus, setBotStatus] = useState<BotStatus>({
@@ -403,12 +406,6 @@ export default function App() {
         setBotStatus(data);
       }
 
-      const configRes = await fetch("/api/bot/config");
-      if (configRes.ok) {
-        const data = await configRes.json();
-        setConfigs(data);
-      }
-
       const logsRes = await fetch("/api/bot/logs/deleted-modified");
       if (logsRes.ok) {
         const data = await logsRes.json();
@@ -429,6 +426,124 @@ export default function App() {
     }
   }, [selectedGuildId]);
 
+  // Load guild-specific data (config, channels, roles)
+  const loadGuildData = useCallback(async (guildId: string) => {
+    if (!guildId) return;
+
+    try {
+      // Load guild config (welcome/leave/autorole)
+      const configRes = await fetch("/api/discord/config");
+      let guildConfig: any = {};
+      if (configRes.ok) {
+        const allConfigs = await configRes.json();
+        guildConfig = allConfigs.find((c: any) => c.guildId === guildId) || {};
+      }
+
+      // Load TTS config
+      const ttsRes = await fetch(`/api/discord/tts-config/${guildId}`);
+      let ttsConfig = {
+        enabled: false,
+        sourceChannelId: "",
+        voiceChannelId: "",
+        language: "it",
+        prefixes: [",", ";", "!"]
+      };
+      if (ttsRes.ok) {
+        const ttsData = await ttsRes.json();
+        ttsConfig = {
+          enabled: ttsData.ttsEnabled || false,
+          sourceChannelId: ttsData.ttsSourceChannelId || "",
+          voiceChannelId: ttsData.ttsVoiceChannelId || "",
+          language: ttsData.ttsLanguage || "it",
+          prefixes: ttsData.ttsPrefixes || [",", ";", "!"]
+        };
+      }
+
+      // Load logs config (from /api/discord/config as well)
+      const configForLogsRes = await fetch("/api/discord/config");
+      let logsConfig = {
+        enabled: false,
+        channelId: "",
+        interceptApps: true,
+        interceptUsers: true
+      };
+      if (configForLogsRes.ok) {
+        const allConfigsForLogs = await configForLogsRes.json();
+        const guildLogsConfig = allConfigsForLogs.find((c: any) => c.guildId === guildId && c.interceptApps !== undefined) || {};
+        logsConfig = {
+          enabled: guildLogsConfig.enabled ?? false,
+          channelId: guildLogsConfig.channelId || "",
+          interceptApps: guildLogsConfig.interceptApps ?? true,
+          interceptUsers: guildLogsConfig.interceptUsers ?? true
+        };
+      }
+
+      // Helper to ensure card has valid structure
+      const ensureValidCard = (card: any, defaultCard: any) => {
+        if (!card || typeof card !== "object") {
+          return defaultCard;
+        }
+        return {
+          width: card.width || defaultCard.width,
+          height: card.height || defaultCard.height,
+          layers: Array.isArray(card.layers) ? card.layers : defaultCard.layers
+        };
+      };
+
+      // Default card structure
+      const defaultWelcomeCard = { width: 800, height: 400, layers: [] };
+      const defaultLeaveCard = { width: 800, height: 400, layers: [] };
+
+      // Update configs state
+      setConfigs(prev => ({
+        ...prev,
+        welcome: {
+          enabled: guildConfig.welcomeEnabled ?? true,
+          channelId: guildConfig.welcomeChannelId || "",
+          message: guildConfig.welcomeMessage || "Benvenuto {user} nel server! Leggi il regolamento.",
+          card: ensureValidCard(guildConfig.welcomeCard, prev.welcome.card || defaultWelcomeCard)
+        },
+        leave: {
+          enabled: guildConfig.leaveEnabled ?? true,
+          channelId: guildConfig.leaveChannelId || "",
+          message: guildConfig.leaveMessage || "Ci mancherai, {username}!",
+          card: ensureValidCard(guildConfig.leaveCard, prev.leave.card || defaultLeaveCard)
+        },
+        autoRole: {
+          enabled: guildConfig.autoroleEnabled ?? false,
+          roleIds: guildConfig.autoroleRoleIds || [],
+          roles: []
+        },
+        tts: ttsConfig,
+        scheduledMessages: prev.scheduledMessages.filter((m: any) => m.guildId === guildId),
+        logsConfig: logsConfig
+      }));
+
+      // Load channels
+      const channelsRes = await fetch(`/api/discord/guilds/${guildId}/channels`);
+      if (channelsRes.ok) {
+        const data = await channelsRes.json();
+        setChannels(data);
+      }
+
+      // Load voice channels
+      const voiceRes = await fetch(`/api/discord/guilds/${guildId}/voice-channels`);
+      if (voiceRes.ok) {
+        const data = await voiceRes.json();
+        setVoiceChannels(data);
+      }
+
+      // Load roles
+      const rolesRes = await fetch(`/api/discord/guilds/${guildId}/roles`);
+      if (rolesRes.ok) {
+        const data = await rolesRes.json();
+        setRoles(data);
+      }
+    } catch (err) {
+      console.error("Error loading guild data:", err);
+    }
+  }, []);
+
   useEffect(() => {
     loadData();
 
@@ -442,29 +557,101 @@ export default function App() {
     return () => clearInterval(timer);
   }, [loadData]);
 
+  // Load guild data when selected guild changes
+  useEffect(() => {
+    if (selectedGuildId) {
+      loadGuildData(selectedGuildId);
+    }
+  }, [selectedGuildId, loadGuildData]);
+
   // General Post Config Saver
   const saveSection = async (section: keyof ModuleConfig, payload: any, message: string) => {
     try {
-      const res = await fetch(`/api/bot/config/${section}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setConfigs(prev => ({
-          ...prev,
-          [section]: data.config
-        }));
-        showToast(message, "success");
-        // Reload status to fetch fresh log entries
-        const statusRes = await fetch("/api/bot/status");
-        if (statusRes.ok) {
-          const freshStatus = await statusRes.json();
-          setBotStatus(prev => ({ ...prev, logs: freshStatus.logs }));
+      const selectedGuild = guilds.find(g => g.id === selectedGuildId);
+
+      if (section === "welcome" || section === "leave" || section === "autoRole" || section === "logsConfig") {
+        // Load current config to preserve other settings
+        const configRes = await fetch("/api/discord/config");
+        let allConfigs = [];
+        if (configRes.ok) {
+          allConfigs = await configRes.json();
+        }
+
+        const existingConfig = allConfigs.find((c: any) => c.guildId === selectedGuildId);
+        const guildConfig: any = existingConfig || {
+          guildId: selectedGuildId,
+          guildName: selectedGuild?.name || "Unknown"
+        };
+
+        if (section === "welcome") {
+          guildConfig.welcomeEnabled = payload.enabled;
+          guildConfig.welcomeChannelId = payload.channelId;
+          guildConfig.welcomeMessage = payload.message;
+          guildConfig.welcomeCard = payload.card;
+        } else if (section === "leave") {
+          guildConfig.leaveEnabled = payload.enabled;
+          guildConfig.leaveChannelId = payload.channelId;
+          guildConfig.leaveMessage = payload.message;
+          guildConfig.leaveCard = payload.card;
+        } else if (section === "autoRole") {
+          guildConfig.autoroleEnabled = payload.enabled;
+          guildConfig.autoroleRoleIds = payload.roleIds;
+        } else if (section === "logsConfig") {
+          guildConfig.enabled = payload.enabled;
+          guildConfig.channelId = payload.channelId;
+          guildConfig.interceptApps = payload.interceptApps;
+          guildConfig.interceptUsers = payload.interceptUsers;
+        }
+
+        const res = await fetch("/api/discord/config", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(guildConfig)
+        });
+
+        if (res.ok) {
+          setConfigs(prev => ({ ...prev, [section]: payload }));
+          showToast(message, "success");
+        } else {
+          showToast("Errore durante il salvataggio", "error");
+        }
+      } else if (section === "tts") {
+        const ttsConfig = {
+          guildId: selectedGuildId,
+          guildName: selectedGuild?.name || "Unknown",
+          ttsEnabled: payload.enabled,
+          ttsSourceChannelId: payload.sourceChannelId,
+          ttsVoiceChannelId: payload.voiceChannelId,
+          ttsLanguage: payload.language,
+          ttsPrefixes: payload.prefixes
+        };
+
+        const res = await fetch("/api/discord/tts-config", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(ttsConfig)
+        });
+
+        if (res.ok) {
+          setConfigs(prev => ({ ...prev, [section]: payload }));
+          showToast(message, "success");
+        } else {
+          showToast("Errore durante il salvataggio", "error");
         }
       } else {
-        showToast("Errore durante il salvataggio", "error");
+        // For other sections, use existing endpoint
+        const res = await fetch(`/api/bot/config/${section}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setConfigs(prev => ({ ...prev, [section]: data.config }));
+          showToast(message, "success");
+        } else {
+          showToast("Errore durante il salvataggio", "error");
+        }
       }
     } catch (err) {
       console.error(err);
@@ -473,8 +660,20 @@ export default function App() {
   };
 
   // Interactive Layer Modifiers
-  const updateActiveCardLayer = (section: "welcome" | "leave", updatedLayer: CardLayer) => {
+  const getValidCard = (section: "welcome" | "leave") => {
     const card = configs[section].card;
+    if (!card || typeof card !== "object") {
+      return { width: 800, height: 400, layers: [] };
+    }
+    return {
+      width: card.width || 800,
+      height: card.height || 400,
+      layers: Array.isArray(card.layers) ? card.layers : []
+    };
+  };
+
+  const updateActiveCardLayer = (section: "welcome" | "leave", updatedLayer: CardLayer) => {
+    const card = getValidCard(section);
     const updatedLayers = card.layers.map(l => l.id === updatedLayer.id ? updatedLayer : l);
 
     setConfigs(prev => ({
@@ -490,7 +689,7 @@ export default function App() {
   };
 
   const addCardLayer = (section: "welcome" | "leave", type: "image" | "text" | "avatar") => {
-    const card = configs[section].card;
+    const card = getValidCard(section);
     const id = `${type}-${Date.now()}`;
 
     let newLayer: CardLayer = {
@@ -543,7 +742,7 @@ export default function App() {
   };
 
   const deleteCardLayer = (section: "welcome" | "leave", layerId: string) => {
-    const card = configs[section].card;
+    const card = getValidCard(section);
     setConfigs(prev => ({
       ...prev,
       [section]: {
@@ -559,7 +758,7 @@ export default function App() {
   };
 
   const moveLayerOrder = (section: "welcome" | "leave", index: number, direction: "up" | "down") => {
-    const card = configs[section].card;
+    const card = getValidCard(section);
     const newLayers = [...card.layers];
     const targetIndex = direction === "up" ? index + 1 : index - 1;
 
@@ -583,7 +782,7 @@ export default function App() {
   };
 
   const handleLayerDrag = (section: "welcome" | "leave", id: string, position: { x: number; y: number }) => {
-    const card = configs[section].card;
+    const card = getValidCard(section);
     const layer = card.layers.find(l => l.id === id);
     if (layer) {
       updateActiveCardLayer(section, { ...layer, ...position });
@@ -1094,9 +1293,10 @@ export default function App() {
                       }}
                       className="w-full bg-neutral-900 border border-neutral-800/80 px-4 py-2.5 rounded-lg text-sm text-neutral-200 focus:outline-none focus:border-indigo-500 font-mono"
                     >
-                      <option value="112233445566778899">#generale</option>
-                      <option value="112233445566778800">#welcome-log</option>
-                      <option value="112233445566778805">#comandi-bot</option>
+                      <option value="">Seleziona un canale...</option>
+                      {channels.map(channel => (
+                        <option key={channel.id} value={channel.id}>#{channel.name}</option>
+                      ))}
                     </select>
                   </div>
 
@@ -1429,13 +1629,11 @@ export default function App() {
                   <p className="text-xs text-neutral-500">Seleziona i ruoli che verranno assegnati ai nuovi membri:</p>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {[
-                      { id: "112233445566778801", name: "Membro", color: "text-blue-400 bg-blue-950/20 border-blue-900/50" },
-                      { id: "112233445566778802", name: "Novizio", color: "text-emerald-400 bg-emerald-950/20 border-emerald-900/50" },
-                      { id: "112233445566778803", name: "Adepto", color: "text-purple-400 bg-purple-950/20 border-purple-900/50" },
-                      { id: "112233445566778804", name: "Moderatore", color: "text-rose-400 bg-rose-950/20 border-rose-900/50" },
-                    ].map((role) => {
+                    {roles.map((role) => {
                       const isSelected = configs.autoRole.roleIds.includes(role.id);
+                      const roleColor = role.color || "#808080";
+                      const bgStyle = { backgroundColor: `${roleColor}20`, borderColor: `${roleColor}50` };
+
                       return (
                         <div
                           key={role.id}
@@ -1447,12 +1645,13 @@ export default function App() {
                             saveSection("autoRole", { ...configs.autoRole, roleIds: updatedList }, "Ruoli aggiornati!");
                           }}
                           className={`flex items-center justify-between p-4 rounded-xl border cursor-pointer transition-all ${isSelected
-                            ? `${role.color} ring-1 ring-indigo-500/20`
+                            ? "ring-1 ring-indigo-500/20"
                             : "bg-neutral-900/40 border-neutral-800/80 text-neutral-400 hover:bg-neutral-900"
                             } ${!configs.autoRole.enabled ? "opacity-50 cursor-not-allowed" : ""}`}
+                          style={isSelected ? bgStyle : {}}
                         >
                           <div className="flex items-center gap-3">
-                            <div className="w-2.5 h-2.5 rounded-full bg-current" />
+                            <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: roleColor }} />
                             <span className="text-sm font-semibold text-neutral-200">{role.name}</span>
                           </div>
                           {isSelected && <Check className="w-4 h-4" />}
@@ -1657,8 +1856,10 @@ export default function App() {
                       }}
                       className="w-full bg-neutral-900 border border-neutral-800/80 px-4 py-2.5 rounded-lg text-sm text-neutral-200 focus:outline-none focus:border-indigo-500 font-mono"
                     >
-                      <option value="112233445566778805">#comandi-bot</option>
-                      <option value="112233445566778899">#generale</option>
+                      <option value="">Seleziona un canale...</option>
+                      {channels.map(channel => (
+                        <option key={channel.id} value={channel.id}>#{channel.name}</option>
+                      ))}
                     </select>
                   </div>
 
@@ -1671,8 +1872,10 @@ export default function App() {
                       }}
                       className="w-full bg-neutral-900 border border-neutral-800/80 px-4 py-2.5 rounded-lg text-sm text-neutral-200 focus:outline-none focus:border-indigo-500 font-mono"
                     >
-                      <option value="112233445566778806">🔊 Voice Lounge</option>
-                      <option value="112233445566778807">🔊 Sala Giochi</option>
+                      <option value="">Seleziona un canale vocale...</option>
+                      {voiceChannels.map(channel => (
+                        <option key={channel.id} value={channel.id}>🔊 {channel.name}</option>
+                      ))}
                     </select>
                   </div>
 
@@ -1753,38 +1956,17 @@ export default function App() {
                     <div className="space-y-1.5">
                       <label className="text-xs font-bold text-neutral-400 uppercase">Invia Log nel Canale</label>
                       <select
-                        value={configs.logsConfig.channelId === "112233445566778810" || configs.logsConfig.channelId === "112233445566778805" || configs.logsConfig.channelId === "112233445566778899" ? configs.logsConfig.channelId : "custom"}
+                        value={configs.logsConfig.channelId}
                         onChange={(e) => {
-                          const val = e.target.value === "custom" ? "" : e.target.value;
-                          saveSection("logsConfig", { ...configs.logsConfig, channelId: val }, "Canale log aggiornato!");
+                          saveSection("logsConfig", { ...configs.logsConfig, channelId: e.target.value }, "Canale log aggiornato!");
                         }}
                         className="w-full bg-neutral-900 border border-neutral-800 px-4 py-2.5 rounded-lg text-sm text-neutral-200 focus:outline-none focus:border-indigo-500 font-mono"
                       >
-                        <option value="112233445566778810">#log-messaggi (default)</option>
-                        <option value="112233445566778805">#comandi-bot</option>
-                        <option value="112233445566778899">#generale</option>
-                        <option value="custom">✍️ Inserisci ID Canale Personalizzato...</option>
+                        <option value="">Seleziona un canale...</option>
+                        {channels.map(channel => (
+                          <option key={channel.id} value={channel.id}>#{channel.name}</option>
+                        ))}
                       </select>
-
-                      {(configs.logsConfig.channelId !== "112233445566778810" && configs.logsConfig.channelId !== "112233445566778805" && configs.logsConfig.channelId !== "112233445566778899") && (
-                        <div className="pt-2">
-                          <input
-                            type="text"
-                            value={configs.logsConfig.channelId}
-                            onChange={(e) => {
-                              setConfigs(prev => ({
-                                ...prev,
-                                logsConfig: { ...prev.logsConfig, channelId: e.target.value }
-                              }));
-                            }}
-                            onBlur={() => {
-                              saveSection("logsConfig", configs.logsConfig, "ID Canale log salvato!");
-                            }}
-                            placeholder="Digita l'ID del canale Discord..."
-                            className="w-full bg-[#1e1f22] border border-neutral-800 px-3 py-2 rounded-lg text-xs font-mono text-indigo-400 focus:outline-none focus:border-indigo-500"
-                          />
-                        </div>
-                      )}
                     </div>
 
                     {/* Filter targets: App / Bots and Users */}

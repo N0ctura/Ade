@@ -147,6 +147,33 @@ export interface ScheduledMessageConfig {
   createdAt: string;
 }
 
+export interface DeletedModifiedLog {
+  id: string;
+  guildId: string;
+  timestamp: string;
+  type: "deleted" | "modified";
+  author: {
+    id: string;
+    username: string;
+    avatar: string;
+    isBot: boolean;
+  };
+  channelId: string;
+  channelName: string;
+  oldContent?: string;
+  newContent?: string;
+  deletedContent?: string;
+}
+
+export interface GuildLogsConfig {
+  guildId: string;
+  guildName: string;
+  enabled?: boolean;
+  channelId?: string;
+  interceptApps?: boolean;
+  interceptUsers?: boolean;
+}
+
 export interface BotConfig {
   pollChannelName: string | null;
   notifyChannelNames: string[];
@@ -162,6 +189,8 @@ export interface BotConfig {
   autoResponses?: AutoResponseConfig[];
   scheduledMessages?: ScheduledMessageConfig[];
   ttsConfigs?: GuildTTSConfig[];
+  logsConfigs?: GuildLogsConfig[];
+  deletedModifiedLogs?: DeletedModifiedLog[];
 }
 
 const DEFAULT_CONFIG: BotConfig = {

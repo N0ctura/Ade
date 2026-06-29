@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { Router, type Request, type Response } from "express";
 import { logger } from "../lib/logger.js";
-import { loadConfig, saveConfig, type GuildWelcomeLeaveConfig, type AutoResponseConfig, type ScheduledMessageConfig, type GuildTTSConfig } from "./storage.js";
+import { loadConfig, saveConfig, type GuildWelcomeLeaveConfig, type AutoResponseConfig, type ScheduledMessageConfig, type GuildTTSConfig, type GuildLogsConfig, type DeletedModifiedLog } from "./storage.js";
 import { getTTSConfig } from "./tts.js";
 
 let discordClient: any = null;
@@ -154,43 +154,76 @@ router.get("/config", (req: Request, res: Response) => {
 
 /**
  * POST /api/discord/config
- * Salva una configurazione welcome/leave
+ * Salva una configurazione welcome/leave o logs
  */
 router.post("/config", (req: Request, res: Response) => {
   try {
-    const { guildId, guildName, welcomeChannelId, welcomeMessage, welcomeEnabled, welcomeCard, leaveChannelId, leaveMessage, leaveEnabled, leaveCard, autoroleEnabled, autoroleRoleIds } = req.body;
+    const {
+      guildId, guildName,
+      welcomeChannelId, welcomeMessage, welcomeEnabled, welcomeCard,
+      leaveChannelId, leaveMessage, leaveEnabled, leaveCard,
+      autoroleEnabled, autoroleRoleIds,
+      enabled: logsEnabled, channelId: logsChannelId, interceptApps, interceptUsers
+    } = req.body;
 
     if (!guildId || !guildName) {
       return res.status(400).json({ error: "Guild ID and name are required" });
     }
 
     const config = loadConfig();
+
+    // Handle welcome/leave config first
     const welcomeLeaveConfigs = config.welcomeLeaveConfigs || [];
+    const existingWLIndex = welcomeLeaveConfigs.findIndex(c => c.guildId === guildId);
 
-    const existingIndex = welcomeLeaveConfigs.findIndex(c => c.guildId === guildId);
-    const newConfig: GuildWelcomeLeaveConfig = {
-      guildId,
-      guildName,
-      welcomeChannelId,
-      welcomeMessage,
-      welcomeEnabled,
-      welcomeCard,
-      leaveChannelId,
-      leaveMessage,
-      leaveEnabled,
-      leaveCard,
-      autoroleEnabled,
-      autoroleRoleIds,
-    };
+    if (welcomeChannelId !== undefined || welcomeMessage !== undefined || welcomeEnabled !== undefined ||
+      leaveChannelId !== undefined || leaveMessage !== undefined || leaveEnabled !== undefined ||
+      autoroleEnabled !== undefined || autoroleRoleIds !== undefined) {
+      const newWLConfig: GuildWelcomeLeaveConfig = {
+        guildId,
+        guildName,
+        welcomeChannelId: welcomeChannelId ?? (existingWLIndex !== -1 ? welcomeLeaveConfigs[existingWLIndex].welcomeChannelId : undefined),
+        welcomeMessage: welcomeMessage ?? (existingWLIndex !== -1 ? welcomeLeaveConfigs[existingWLIndex].welcomeMessage : undefined),
+        welcomeEnabled: welcomeEnabled ?? (existingWLIndex !== -1 ? welcomeLeaveConfigs[existingWLIndex].welcomeEnabled : undefined),
+        welcomeCard: welcomeCard ?? (existingWLIndex !== -1 ? welcomeLeaveConfigs[existingWLIndex].welcomeCard : undefined),
+        leaveChannelId: leaveChannelId ?? (existingWLIndex !== -1 ? welcomeLeaveConfigs[existingWLIndex].leaveChannelId : undefined),
+        leaveMessage: leaveMessage ?? (existingWLIndex !== -1 ? welcomeLeaveConfigs[existingWLIndex].leaveMessage : undefined),
+        leaveEnabled: leaveEnabled ?? (existingWLIndex !== -1 ? welcomeLeaveConfigs[existingWLIndex].leaveEnabled : undefined),
+        leaveCard: leaveCard ?? (existingWLIndex !== -1 ? welcomeLeaveConfigs[existingWLIndex].leaveCard : undefined),
+        autoroleEnabled: autoroleEnabled ?? (existingWLIndex !== -1 ? welcomeLeaveConfigs[existingWLIndex].autoroleEnabled : undefined),
+        autoroleRoleIds: autoroleRoleIds ?? (existingWLIndex !== -1 ? welcomeLeaveConfigs[existingWLIndex].autoroleRoleIds : undefined),
+      };
 
-    if (existingIndex !== -1) {
-      welcomeLeaveConfigs[existingIndex] = newConfig;
-    } else {
-      welcomeLeaveConfigs.push(newConfig);
+      if (existingWLIndex !== -1) {
+        welcomeLeaveConfigs[existingWLIndex] = newWLConfig;
+      } else {
+        welcomeLeaveConfigs.push(newWLConfig);
+      }
     }
 
-    saveConfig({ ...config, welcomeLeaveConfigs });
-    res.json({ success: true, config: newConfig });
+    // Handle logs config
+    const logsConfigs = config.logsConfigs || [];
+    const existingLogsIndex = logsConfigs.findIndex(c => c.guildId === guildId);
+
+    if (logsEnabled !== undefined || logsChannelId !== undefined || interceptApps !== undefined || interceptUsers !== undefined) {
+      const newLogsConfig: GuildLogsConfig = {
+        guildId,
+        guildName,
+        enabled: logsEnabled ?? (existingLogsIndex !== -1 ? logsConfigs[existingLogsIndex].enabled : undefined),
+        channelId: logsChannelId ?? (existingLogsIndex !== -1 ? logsConfigs[existingLogsIndex].channelId : undefined),
+        interceptApps: interceptApps ?? (existingLogsIndex !== -1 ? logsConfigs[existingLogsIndex].interceptApps : undefined),
+        interceptUsers: interceptUsers ?? (existingLogsIndex !== -1 ? logsConfigs[existingLogsIndex].interceptUsers : undefined),
+      };
+
+      if (existingLogsIndex !== -1) {
+        logsConfigs[existingLogsIndex] = newLogsConfig;
+      } else {
+        logsConfigs.push(newLogsConfig);
+      }
+    }
+
+    saveConfig({ ...config, welcomeLeaveConfigs, logsConfigs });
+    res.json({ success: true });
   } catch (err) {
     logger.error({ err }, "Error saving config");
     res.status(500).json({ error: "Internal server error" });
@@ -462,6 +495,39 @@ router.post("/upload-image", (req: Request, res: Response) => {
     res.json({ success: true, imageUrl: image, filename: filename || "image.png" });
   } catch (err) {
     logger.error({ err }, "Error uploading image");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+/**
+ * GET /api/discord/guilds/:guildId/deleted-modified-logs
+ * Ottieni i log dei messaggi eliminati e modificati per una guild
+ */
+router.get("/guilds/:guildId/deleted-modified-logs", (req: Request, res: Response) => {
+  try {
+    const { guildId } = req.params;
+    const config = loadConfig();
+    const guildLogs = (config.deletedModifiedLogs || []).filter((log: DeletedModifiedLog) => log.guildId === guildId);
+    res.json(guildLogs);
+  } catch (err) {
+    logger.error({ err }, "Error fetching deleted/modified logs");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+/**
+ * POST /api/discord/guilds/:guildId/deleted-modified-logs/clear
+ * Pulisci i log dei messaggi eliminati e modificati per una guild
+ */
+router.post("/guilds/:guildId/deleted-modified-logs/clear", (req: Request, res: Response) => {
+  try {
+    const { guildId } = req.params;
+    const config = loadConfig();
+    const updatedLogs = (config.deletedModifiedLogs || []).filter((log: DeletedModifiedLog) => log.guildId !== guildId);
+    saveConfig({ ...config, deletedModifiedLogs: updatedLogs });
+    res.json({ success: true, logs: updatedLogs.filter((log: DeletedModifiedLog) => log.guildId === guildId) });
+  } catch (err) {
+    logger.error({ err }, "Error clearing deleted/modified logs");
     res.status(500).json({ error: "Internal server error" });
   }
 });

@@ -19,7 +19,7 @@ import * as impostazioniCommand from "./commands/impostazioni.js";
 import * as debugTempliCommand from "./commands/debug-templi.js";
 import * as fineCommand from "./commands/fine.js";
 import { BOT_CONFIG } from "./config.js";
-import { loadConfig, saveConfig, initStorage } from "./storage.js";
+import { loadConfig, saveConfig, initStorage, type DeletedModifiedLog, type GuildLogsConfig } from "./storage.js";
 import { schedulePollClose } from "./poll-timer.js";
 import { fetchPlayerByUsername, fetchClanById } from "./wolvesville.js";
 import { generateProfileCard } from "./profile-card.js";
@@ -71,7 +71,7 @@ export async function startBot(): Promise<void> {
       GatewayIntentBits.MessageContent,
       GatewayIntentBits.GuildVoiceStates,
     ],
-    partials: [Partials.Message, Partials.Channel, Partials.GuildMember, Partials.VoiceState],
+    partials: [Partials.Message, Partials.Channel, Partials.GuildMember],
   });
 
   client.once("ready", async (c) => {
@@ -397,6 +397,146 @@ export async function startBot(): Promise<void> {
       logger.error({ err, username }, "Errore ricerca giocatore");
       await message.reply({ content: "❌ Errore durante la ricerca del giocatore. Riprova più tardi." });
     }
+  });
+
+  // Funzione per ottenere la configurazione logs di una guild
+  function getGuildLogsConfig(guildId: string): GuildLogsConfig {
+    const config = loadConfig();
+    return (
+      config.logsConfigs?.find((c) => c.guildId === guildId) ?? {
+        guildId,
+        guildName: "Unknown",
+        enabled: false,
+        channelId: undefined,
+        interceptApps: true,
+        interceptUsers: true,
+      }
+    );
+  }
+
+  // Funzione per gestire un log (salvare e inviare nel canale)
+  async function handleLog(logEntry: DeletedModifiedLog) {
+    const config = loadConfig();
+    const logsConfig = getGuildLogsConfig(logEntry.guildId);
+
+    // Salva il log in memoria
+    const logs = config.deletedModifiedLogs ?? [];
+    logs.unshift(logEntry);
+    // Mantieni solo gli ultimi 100 log
+    const trimmedLogs = logs.slice(0, 100);
+    saveConfig({ ...config, deletedModifiedLogs: trimmedLogs });
+
+    // Se logs è abilitato e c'è un canale configurato, invia un embed
+    if (logsConfig.enabled && logsConfig.channelId) {
+      const channel = client.channels.cache.get(logsConfig.channelId) as TextChannel;
+      if (channel) {
+        try {
+          const embed = new EmbedBuilder()
+            .setColor(logEntry.type === "deleted" ? 0xed4245 : 0xfee75c)
+            .setTitle(logEntry.type === "deleted" ? "🗑️ Messaggio Eliminato" : "✏️ Messaggio Modificato")
+            .setAuthor({
+              name: logEntry.author.username,
+              iconURL: logEntry.author.avatar,
+            })
+            .addFields(
+              { name: "Canale", value: `<#${logEntry.channelId}>`, inline: true },
+              { name: "Data", value: `<t:${Math.floor(new Date(logEntry.timestamp).getTime() / 1000)}:F>`, inline: true }
+            )
+            .setTimestamp();
+
+          if (logEntry.type === "deleted" && logEntry.deletedContent) {
+            embed.addFields({ name: "Contenuto Eliminato", value: logEntry.deletedContent.length > 1024 ? logEntry.deletedContent.substring(0, 1021) + "..." : logEntry.deletedContent });
+          } else if (logEntry.type === "modified") {
+            if (logEntry.oldContent) {
+              embed.addFields({ name: "Prima", value: logEntry.oldContent.length > 1024 ? logEntry.oldContent.substring(0, 1021) + "..." : logEntry.oldContent });
+            }
+            if (logEntry.newContent) {
+              embed.addFields({ name: "Dopo", value: logEntry.newContent.length > 1024 ? logEntry.newContent.substring(0, 1021) + "..." : logEntry.newContent });
+            }
+          }
+
+          await channel.send({ embeds: [embed] });
+        } catch (err) {
+          logger.error({ err, guildId: logEntry.guildId }, "Errore invio log nel canale");
+        }
+      }
+    }
+  }
+
+  // Listener per messaggi eliminati
+  client.on("messageDelete", async (message) => {
+    if (!message.guildId) return;
+
+    const logsConfig = getGuildLogsConfig(message.guildId);
+    if (!logsConfig.enabled) return;
+
+    // Verifica i filtri
+    const isBot = message.author?.bot || false;
+    if (isBot && !logsConfig.interceptApps) return;
+    if (!isBot && !logsConfig.interceptUsers) return;
+
+    const logEntry: DeletedModifiedLog = {
+      id: `log-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      guildId: message.guildId,
+      timestamp: new Date().toISOString(),
+      type: "deleted",
+      author: message.author ? {
+        id: message.author.id,
+        username: message.author.tag,
+        avatar: message.author.displayAvatarURL(),
+        isBot: message.author.bot,
+      } : {
+        id: "unknown",
+        username: "Unknown",
+        avatar: "",
+        isBot: false,
+      },
+      channelId: message.channelId,
+      channelName: (message.channel as any)?.name || "Unknown",
+      deletedContent: message.content ?? undefined,
+    };
+
+    await handleLog(logEntry);
+  });
+
+  // Listener per messaggi modificati
+  client.on("messageUpdate", async (oldMessage, newMessage) => {
+    if (!oldMessage.guildId) return;
+
+    const logsConfig = getGuildLogsConfig(oldMessage.guildId);
+    if (!logsConfig.enabled) return;
+
+    // Verifica i filtri
+    const isBot = oldMessage.author?.bot || false;
+    if (isBot && !logsConfig.interceptApps) return;
+    if (!isBot && !logsConfig.interceptUsers) return;
+
+    // Non loggare se il contenuto non è cambiato
+    if (oldMessage.content === newMessage.content) return;
+
+    const logEntry: DeletedModifiedLog = {
+      id: `log-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      guildId: oldMessage.guildId,
+      timestamp: new Date().toISOString(),
+      type: "modified",
+      author: oldMessage.author ? {
+        id: oldMessage.author.id,
+        username: oldMessage.author.tag,
+        avatar: oldMessage.author.displayAvatarURL(),
+        isBot: oldMessage.author.bot,
+      } : {
+        id: "unknown",
+        username: "Unknown",
+        avatar: "",
+        isBot: false,
+      },
+      channelId: oldMessage.channelId,
+      channelName: (oldMessage.channel as any)?.name || "Unknown",
+      oldContent: oldMessage.content ?? undefined,
+      newContent: newMessage.content ?? undefined,
+    };
+
+    await handleLog(logEntry);
   });
 
   client.on("voiceStateUpdate", async (oldState: VoiceState, newState: VoiceState) => {

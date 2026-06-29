@@ -36,26 +36,32 @@ function removeEmojis(str: string): string {
 async function textToMp3Stream(text: string, lang: string = "it"): Promise<Readable> {
   return new Promise((resolve, reject) => {
     try {
-      // Creiamo un file temporaneo in memoria
-      const chunks: Buffer[] = [];
       const gtts = new gTTS(text, lang);
+      const chunks: Buffer[] = [];
 
-      gtts.on('data', (chunk) => {
-        chunks.push(chunk);
+      // @ts-ignore - gTTS library types might be incomplete
+      gtts.stream((err, stream) => {
+        if (err) {
+          logger.error({ err, text }, "Errore nella generazione audio TTS");
+          reject(err);
+          return;
+        }
+
+        stream.on('data', (chunk: Buffer) => {
+          chunks.push(chunk);
+        });
+
+        stream.on('end', () => {
+          const buffer = Buffer.concat(chunks);
+          const readableStream = Readable.from(buffer);
+          resolve(readableStream);
+        });
+
+        stream.on('error', (streamErr: Error) => {
+          logger.error({ err: streamErr, text }, "Errore nello stream TTS");
+          reject(streamErr);
+        });
       });
-
-      gtts.on('end', () => {
-        const buffer = Buffer.concat(chunks);
-        const stream = Readable.from(buffer);
-        resolve(stream);
-      });
-
-      gtts.on('error', (err) => {
-        logger.error({ err, text }, "Errore nella generazione audio TTS");
-        reject(err);
-      });
-
-      gtts.save(); // Avvia la generazione
     } catch (err) {
       logger.error({ err, text }, "Errore nella funzione textToMp3Stream");
       reject(err);
@@ -98,7 +104,7 @@ export async function playTextInChannel(
     connection = joinVoiceChannel({
       channelId: voiceChannel.id,
       guildId: guildId,
-      adapterCreator: guild.voiceAdapterCreator,
+      adapterCreator: guild.voiceAdapterCreator as any,
       selfDeaf: false,
       selfMute: false,
     });
@@ -196,6 +202,22 @@ async function playFromQueue(
 }
 
 /**
+ * Funzione per il comando slash /leggi: legge un testo nel canale vocale dell'utente
+ */
+export async function playText(
+  member: GuildMember,
+  text: string,
+  lang: string = "it"
+): Promise<void> {
+  const voiceChannelId = member.voice.channelId;
+  if (!voiceChannelId) {
+    throw new Error("L'utente non è in un canale vocale!");
+  }
+
+  await playTextInChannel(member.guild.id, voiceChannelId, text, lang, member.client);
+}
+
+/**
  * Ferma il TTS e disconnette dal canale vocale
  */
 export function stopTTS(guildId: string): void {
@@ -225,23 +247,41 @@ export async function handleMessageForTTS(message: {
   member: GuildMember;
   client: Client;
 }): Promise<void> {
-  // Solo messaggi che iniziano con !
-  if (!message.content.startsWith("!")) {
+  // Ottieni la configurazione TTS per questa guild
+  const ttsConfig = getTTSConfig(message.guildId);
+
+  // Verifica se TTS è abilitato
+  if (!ttsConfig.ttsEnabled) {
     return;
   }
 
-  // Rimuovi il prefisso
-  const textToSpeak = message.content.slice(1).trim();
-  if (!textToSpeak) {
+  // Verifica se il canale sorgente è configurato e corrisponde
+  if (ttsConfig.ttsSourceChannelId && message.channelId !== ttsConfig.ttsSourceChannelId) {
+    return;
+  }
+
+  // Controlla se il messaggio inizia con uno dei prefissi
+  let hasPrefix = false;
+  let textToSpeak = "";
+
+  for (const prefix of ttsConfig.ttsPrefixes!) {
+    if (message.content.startsWith(prefix)) {
+      hasPrefix = true;
+      textToSpeak = message.content.slice(prefix.length).trim();
+      break;
+    }
+  }
+
+  if (!hasPrefix || !textToSpeak) {
     return;
   }
 
   // Controlla se l'utente è in un canale vocale
   let voiceChannelId = message.member.voice.channelId;
 
-  // Se l'utente non è in un canale vocale, controlla se il bot è già in uno
+  // Se l'utente non è in un canale vocale, usa quello configurato o quello attivo
   if (!voiceChannelId) {
-    voiceChannelId = activeVoiceChannels.get(message.guildId);
+    voiceChannelId = ttsConfig.ttsVoiceChannelId ?? activeVoiceChannels.get(message.guildId) ?? null;
   }
 
   if (!voiceChannelId) {
@@ -261,7 +301,7 @@ export async function handleMessageForTTS(message: {
     message.guildId,
     voiceChannelId,
     fullText,
-    "it",
+    ttsConfig.ttsLanguage || "it",
     message.client
   );
 }
@@ -311,6 +351,6 @@ export function getTTSConfig(guildId: string): GuildTTSConfig {
     ttsVoiceChannelId: config?.ttsVoiceChannelId,
     ttsEnabled: config?.ttsEnabled ?? false,
     ttsLanguage: config?.ttsLanguage || "it",
-    ttsPrefixes: config?.ttsPrefixes || [",", ";", "!"],
+    ttsPrefixes: config?.ttsPrefixes ?? [",", ";", "!"],
   };
 }
