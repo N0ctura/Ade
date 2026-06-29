@@ -162,3 +162,6 @@ overrides:
 
 allowBuilds:
   '@discordjs/opus': set this to true or false
+  '@google/genai': set this to true or false
+  ffmpeg-static: set this to true or false
+  protobufjs: set this to true or false
