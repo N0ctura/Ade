@@ -10,6 +10,7 @@ import {
 } from "@discordjs/voice";
 import { GuildMember, TextChannel, VoiceChannel, Client, VoiceState } from "discord.js";
 import { logger } from "../lib/logger.js";
+import { loadConfig, saveConfig, type GuildTTSConfig } from "./storage.js";
 import gTTS from "gtts";
 import { Readable } from "node:stream";
 
@@ -76,13 +77,13 @@ export async function playTextInChannel(
     logger.error({ guildId }, "TTS: client Discord non disponibile");
     return;
   }
-  
+
   const guild = client.guilds.cache.get(guildId);
   if (!guild) {
     logger.warn({ guildId }, "TTS: guild non trovata");
     return;
   }
-  
+
   const voiceChannel = guild.channels.cache.get(voiceChannelId) as VoiceChannel;
   if (!voiceChannel) {
     logger.warn({ guildId, voiceChannelId }, "TTS: canale vocale non trovato");
@@ -166,16 +167,16 @@ async function playFromQueue(
 ): Promise<void> {
   try {
     isPlaying.set(guildId, true);
-    
+
     // Genera l'audio
     const mp3Stream = await textToMp3Stream(text, lang);
     logger.debug({ guildId, text }, "TTS: stream audio generato");
-    
+
     // Crea la risorsa audio
     const resource = createAudioResource(mp3Stream, {
       inlineVolume: true,
     });
-    
+
     // Ottieni il player
     const player = players.get(guildId);
     if (!player) {
@@ -183,10 +184,10 @@ async function playFromQueue(
       isPlaying.set(guildId, false);
       return;
     }
-    
+
     // Riproduci
     player.play(resource);
-    
+
     logger.info({ guildId, text }, "TTS: riproduzione avviata");
   } catch (err) {
     logger.error({ err, guildId, text }, "TTS: errore durante la riproduzione");
@@ -237,7 +238,7 @@ export async function handleMessageForTTS(message: {
 
   // Controlla se l'utente è in un canale vocale
   let voiceChannelId = message.member.voice.channelId;
-  
+
   // Se l'utente non è in un canale vocale, controlla se il bot è già in uno
   if (!voiceChannelId) {
     voiceChannelId = activeVoiceChannels.get(message.guildId);
@@ -255,7 +256,7 @@ export async function handleMessageForTTS(message: {
   const fullText = `${cleanUsername} dice: ${textToSpeak}`;
 
   logger.debug({ guildId: message.guildId, text: fullText }, "TTS: nuovo messaggio da leggere");
-  
+
   await playTextInChannel(
     message.guildId,
     voiceChannelId,
@@ -277,4 +278,39 @@ export async function handleVoiceStateUpdate(oldState: VoiceState, newState: Voi
     }
     return;
   }
+}
+
+/**
+ * Imposta la configurazione TTS per una guild
+ */
+export function setTTSConfig(config: GuildTTSConfig): void {
+  const botConfig = loadConfig();
+  const ttsConfigs = botConfig.ttsConfigs || [];
+  const existingIndex = ttsConfigs.findIndex((c: GuildTTSConfig) => c.guildId === config.guildId);
+
+  if (existingIndex !== -1) {
+    ttsConfigs[existingIndex] = config;
+  } else {
+    ttsConfigs.push(config);
+  }
+
+  saveConfig({ ...botConfig, ttsConfigs });
+  logger.info({ guildId: config.guildId }, "TTS: configurazione salvata");
+}
+
+/**
+ * Ottieni la configurazione TTS per una guild
+ */
+export function getTTSConfig(guildId: string): GuildTTSConfig {
+  const botConfig = loadConfig();
+  const config = botConfig.ttsConfigs?.find((c: GuildTTSConfig) => c.guildId === guildId);
+  return {
+    guildId,
+    guildName: config?.guildName || "Unknown",
+    ttsSourceChannelId: config?.ttsSourceChannelId,
+    ttsVoiceChannelId: config?.ttsVoiceChannelId,
+    ttsEnabled: config?.ttsEnabled ?? false,
+    ttsLanguage: config?.ttsLanguage || "it",
+    ttsPrefixes: config?.ttsPrefixes || [",", ";", "!"],
+  };
 }
