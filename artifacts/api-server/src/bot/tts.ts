@@ -17,6 +17,7 @@ import https from "node:https";
 import fs from "node:fs";
 import path from "node:path";
 import ffmpegStatic from "ffmpeg-static";
+import prism from "prism-media";
 
 // Assicuriamoci che la cartella assets esista
 const ASSETS_DIR = path.join(process.cwd(), "assets");
@@ -24,10 +25,10 @@ if (!fs.existsSync(ASSETS_DIR)) {
   fs.mkdirSync(ASSETS_DIR, { recursive: true });
 }
 
-// Configuriamo FFmpeg per @discordjs/voice
+// Configuriamo FFmpeg per prism-media
 if (ffmpegStatic) {
-  process.env.FFMPEG_PATH = ffmpegStatic;
-  logger.info({ path: ffmpegStatic }, "TTS: FFmpeg configurato");
+  (prism.FFmpeg as any).setFfmpegPath(ffmpegStatic);
+  logger.info({ path: ffmpegStatic }, "TTS: FFmpeg configurato per prism-media");
 }
 
 // Map per tenere traccia delle connessioni vocali per ogni guild
@@ -214,12 +215,29 @@ async function playFromQueue(
     tempFilePath = await textToMp3File(text, lang);
     logger.info({ guildId, text, tempFilePath }, "TTS: file audio creato");
 
-    // Crea la risorsa audio direttamente dal file MP3
-    const resource = createAudioResource(tempFilePath!, {
-      inputType: StreamType.Arbitrary,
+    // Crea il transcoder con FFmpeg (usando prism-media con ffmpeg-static)
+    const transcoder = new prism.FFmpeg({
+      args: [
+        "-analyzeduration", "0",
+        "-loglevel", "0",
+        "-i", tempFilePath,
+        "-f", "s16le",
+        "-ar", "48000",
+        "-ac", "2"
+      ]
+    });
+
+    // Aggiungi listener per errori nel transcoder
+    transcoder.on("error", (err) => {
+      logger.error({ err, guildId }, "TTS: ERRORE TRANSCODER FFmpeg");
+    });
+
+    // Crea la risorsa audio dal PCM stream
+    const resource = createAudioResource(transcoder, {
+      inputType: StreamType.Raw,
       inlineVolume: true,
     });
-    logger.info({ guildId, text }, "TTS: risorsa audio creata");
+    logger.info({ guildId, text }, "TTS: risorsa audio creata da PCM");
 
     // Ottieni il player
     const player = players.get(guildId);
