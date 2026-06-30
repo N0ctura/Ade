@@ -1,8 +1,9 @@
 FROM node:24-slim
 
-# DejaVu fonts for @napi-rs/canvas text rendering
+# DejaVu fonts for @napi-rs/canvas text rendering + FFmpeg for TTS
 RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-dejavu-core \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # Pin exact pnpm version matching pnpm-lock.yaml

@@ -1,20 +1,6 @@
 // ==========================================
-// PRIMA DI TUTTO: Configurazione FFmpeg!
-// Questo deve essere PRIMO, PRIMA di importare @discordjs/voice o prism-media!
+// Import dipendenze standard
 // ==========================================
-import ffmpegStatic from "ffmpeg-static";
-import path from "node:path"; // Importiamo path PRIMA per poter usare path.delimiter
-
-// Forza l'uso di ffmpeg-static impostando la variabile d'ambiente PRIMA di qualsiasi altra importazione
-if (ffmpegStatic) {
-  process.env.FFMPEG_PATH = ffmpegStatic;
-  process.env.PATH = [process.env.PATH, ffmpegStatic].join(path.delimiter); // Aggiungiamo anche al PATH per sicurezza
-}
-
-// ==========================================
-// ORA importiamo TUTTE le altre dipendenze!
-// ==========================================
-import prism from "prism-media";
 import {
   joinVoiceChannel,
   createAudioPlayer,
@@ -31,6 +17,7 @@ import { logger } from "../lib/logger.js";
 import { loadConfig, saveConfig, type GuildTTSConfig } from "./storage.js";
 import https from "node:https";
 import fs from "node:fs";
+import path from "node:path";
 
 // Assicuriamoci che la cartella assets esista
 const ASSETS_DIR = path.join(process.cwd(), "assets");
@@ -38,25 +25,7 @@ if (!fs.existsSync(ASSETS_DIR)) {
   fs.mkdirSync(ASSETS_DIR, { recursive: true });
 }
 
-// Configuriamo prism-media in modo semplice:
-if (ffmpegStatic) {
-  logger.info({ path: ffmpegStatic }, "TTS: FFmpeg configurato");
-
-  // Sovrascriviamo prism.FFmpeg.getInfo() in modo che restituisca sempre ffmpegStatic
-  (prism.FFmpeg as any).getInfo = () => {
-    const internalFFMPEG = {
-      command: ffmpegStatic,
-      output: "FFmpeg version 6.0-static (dummy output)",
-    };
-    // Assicuriamoci che l'oggetto interno di prism sia inizializzato
-    if (!(prism as any).FFMPEG) {
-      (prism as any).FFMPEG = internalFFMPEG;
-    } else {
-      Object.assign((prism as any).FFMPEG, internalFFMPEG);
-    }
-    return internalFFMPEG;
-  };
-}
+logger.info("TTS: Using system FFmpeg (installed via Docker)");
 
 // Map per tenere traccia delle connessioni vocali per ogni guild
 const connections: Map<string, VoiceConnection> = new Map();
