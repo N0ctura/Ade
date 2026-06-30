@@ -1,11 +1,29 @@
-// 1. Prima importiamo ffmpeg-static e settiamo FFMPEG_PATH
+// 1. Prima importiamo ffmpeg-static e prism-media, e impostiamo manualmente il percorso FFmpeg
 import ffmpegStatic from "ffmpeg-static";
+import prism from "prism-media";
+
+// Impostiamo manualmente la variabile d'ambiente
 if (ffmpegStatic) {
   process.env.FFMPEG_PATH = ffmpegStatic;
-  // Importiamo logger dopo perché logger usa altre cose
-  import("./../lib/logger.js").then(({ logger }) => {
-    logger.info({ path: ffmpegStatic }, "TTS: FFmpeg configurato");
-  });
+  // Modifichiamo direttamente la cache interna di prism-media
+  // (prism-media ha un oggetto statico 'FFMPEG' che memorizza il comando trovato)
+  // Usiamo type assertion per accedere alla proprietà privata
+  (prism.FFmpeg as any).getInfo = function () {
+    // Sovrascriviamo completamente getInfo() per restituire sempre il nostro ffmpeg-static
+    const result = {
+      command: ffmpegStatic,
+      output: "FFmpeg version 6.0-static", // Dummy output per farlo funzionare
+    };
+    // Assegniamo anche alla variabile interna di prism
+    Object.assign((prism as any).FFMPEG, result);
+    return result;
+  };
+}
+
+// Importiamo logger
+import { logger } from "../lib/logger.js";
+if (ffmpegStatic) {
+  logger.info({ path: ffmpegStatic }, "TTS: FFmpeg configurato");
 }
 
 // 2. POI importiamo @discordjs/voice
@@ -21,7 +39,6 @@ import {
   StreamType,
 } from "@discordjs/voice";
 import { GuildMember, TextChannel, VoiceChannel, Client, VoiceState } from "discord.js";
-import { logger } from "../lib/logger.js";
 import { loadConfig, saveConfig, type GuildTTSConfig } from "./storage.js";
 import https from "node:https";
 import fs from "node:fs";
