@@ -1,32 +1,20 @@
-// 1. Prima importiamo ffmpeg-static e prism-media, e impostiamo manualmente il percorso FFmpeg
+// ==========================================
+// PRIMA DI TUTTO: Configurazione FFmpeg!
+// Questo deve essere PRIMO, PRIMA di importare @discordjs/voice o prism-media!
+// ==========================================
 import ffmpegStatic from "ffmpeg-static";
-import prism from "prism-media";
+import path from "node:path"; // Importiamo path PRIMA per poter usare path.delimiter
 
-// Impostiamo manualmente la variabile d'ambiente
+// Forza l'uso di ffmpeg-static impostando la variabile d'ambiente PRIMA di qualsiasi altra importazione
 if (ffmpegStatic) {
   process.env.FFMPEG_PATH = ffmpegStatic;
-  // Modifichiamo direttamente la cache interna di prism-media
-  // (prism-media ha un oggetto statico 'FFMPEG' che memorizza il comando trovato)
-  // Usiamo type assertion per accedere alla proprietà privata
-  (prism.FFmpeg as any).getInfo = function () {
-    // Sovrascriviamo completamente getInfo() per restituire sempre il nostro ffmpeg-static
-    const result = {
-      command: ffmpegStatic,
-      output: "FFmpeg version 6.0-static", // Dummy output per farlo funzionare
-    };
-    // Assegniamo anche alla variabile interna di prism
-    Object.assign((prism as any).FFMPEG, result);
-    return result;
-  };
+  process.env.PATH = [process.env.PATH, ffmpegStatic].join(path.delimiter); // Aggiungiamo anche al PATH per sicurezza
 }
 
-// Importiamo logger
-import { logger } from "../lib/logger.js";
-if (ffmpegStatic) {
-  logger.info({ path: ffmpegStatic }, "TTS: FFmpeg configurato");
-}
-
-// 2. POI importiamo @discordjs/voice
+// ==========================================
+// ORA importiamo TUTTE le altre dipendenze!
+// ==========================================
+import prism from "prism-media";
 import {
   joinVoiceChannel,
   createAudioPlayer,
@@ -39,15 +27,35 @@ import {
   StreamType,
 } from "@discordjs/voice";
 import { GuildMember, TextChannel, VoiceChannel, Client, VoiceState } from "discord.js";
+import { logger } from "../lib/logger.js";
 import { loadConfig, saveConfig, type GuildTTSConfig } from "./storage.js";
 import https from "node:https";
 import fs from "node:fs";
-import path from "node:path";
 
 // Assicuriamoci che la cartella assets esista
 const ASSETS_DIR = path.join(process.cwd(), "assets");
 if (!fs.existsSync(ASSETS_DIR)) {
   fs.mkdirSync(ASSETS_DIR, { recursive: true });
+}
+
+// Configuriamo prism-media in modo semplice:
+if (ffmpegStatic) {
+  logger.info({ path: ffmpegStatic }, "TTS: FFmpeg configurato");
+
+  // Sovrascriviamo prism.FFmpeg.getInfo() in modo che restituisca sempre ffmpegStatic
+  (prism.FFmpeg as any).getInfo = () => {
+    const internalFFMPEG = {
+      command: ffmpegStatic,
+      output: "FFmpeg version 6.0-static (dummy output)",
+    };
+    // Assicuriamoci che l'oggetto interno di prism sia inizializzato
+    if (!(prism as any).FFMPEG) {
+      (prism as any).FFMPEG = internalFFMPEG;
+    } else {
+      Object.assign((prism as any).FFMPEG, internalFFMPEG);
+    }
+    return internalFFMPEG;
+  };
 }
 
 // Map per tenere traccia delle connessioni vocali per ogni guild
