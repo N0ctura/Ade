@@ -14,8 +14,14 @@ import { logger } from "../lib/logger.js";
 import { loadConfig, saveConfig, type GuildTTSConfig } from "./storage.js";
 import { Readable } from "node:stream";
 import https from "node:https";
-import prism from "prism-media";
-import { spawn } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
+
+// Assicuriamoci che la cartella assets esista
+const ASSETS_DIR = path.join(process.cwd(), "assets");
+if (!fs.existsSync(ASSETS_DIR)) {
+  fs.mkdirSync(ASSETS_DIR, { recursive: true });
+}
 
 // Map per tenere traccia delle connessioni vocali per ogni guild
 const connections: Map<string, VoiceConnection> = new Map();
@@ -35,13 +41,14 @@ function removeEmojis(str: string): string {
 
 /**
  * Converte un testo in audio MP3 usando Google Translate TTS API
+ * Salva il file temporaneo nella cartella assets
  */
-async function textToMp3Buffer(text: string, lang: string = "it"): Promise<Buffer> {
+async function textToMp3File(text: string, lang: string = "it"): Promise<string> {
   return new Promise((resolve, reject) => {
     try {
-      logger.info({ text, lang }, "TTS: creazione stream audio");
+      logger.info({ text, lang }, "TTS: creazione audio MP3");
 
-      // URL di Google Translate TTS (stesso di gtts)
+      // URL di Google Translate TTS
       const url = `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&q=${encodeURIComponent(text)}&tl=${lang}&total=1&idx=0`;
 
       // Eseguiamo la richiesta GET
@@ -61,20 +68,15 @@ async function textToMp3Buffer(text: string, lang: string = "it"): Promise<Buffe
           return;
         }
 
-        const chunks: Buffer[] = [];
+        const tempFilePath = path.join(ASSETS_DIR, `temp_tts_${Date.now()}.mp3`);
+        const fileStream = fs.createWriteStream(tempFilePath);
 
-        res.on("data", (chunk: Buffer) => {
-          logger.debug({ chunkSize: chunk.length }, "TTS: ricevuto chunk audio");
-          chunks.push(chunk);
-        });
+        res.pipe(fileStream);
 
-        res.on("end", () => {
-          const buffer = Buffer.concat(chunks);
-          logger.info(
-            { totalSize: buffer.length },
-            "TTS: stream completato"
-          );
-          resolve(buffer);
+        fileStream.on("finish", () => {
+          fileStream.close();
+          logger.info({ tempFilePath, text }, "TTS: file audio salvato");
+          resolve(tempFilePath);
         });
 
         res.on("error", (err) => {
@@ -88,10 +90,7 @@ async function textToMp3Buffer(text: string, lang: string = "it"): Promise<Buffe
         reject(err);
       });
     } catch (err) {
-      logger.error(
-        { err, text, stack: (err as Error)?.stack },
-        "Errore nella funzione textToMp3Stream"
-      );
+      logger.error({ err, text }, "Errore nella funzione textToMp3File");
       reject(err);
     }
   });
@@ -199,40 +198,21 @@ async function playFromQueue(
   text: string,
   lang: string = "it"
 ): Promise<void> {
+  let tempFilePath: string | null = null;
   try {
     isPlaying.set(guildId, true);
     logger.info({ guildId, text }, "TTS: playFromQueue iniziato");
 
-    // Genera l'audio come Buffer
-    const mp3Buffer = await textToMp3Buffer(text, lang);
-    logger.info({ guildId, text, bufferSize: mp3Buffer.length }, "TTS: buffer audio creato");
+    // Genera l'audio come file temporaneo
+    tempFilePath = await textToMp3File(text, lang);
+    logger.info({ guildId, text, tempFilePath }, "TTS: file audio creato");
 
-    // Crea un Readable da Buffer
-    const mp3Stream = Readable.from(mp3Buffer);
-    logger.info({ guildId, text }, "TTS: stream MP3 creato");
-
-    // Usa prism-media + FFmpeg per convertire l'MP3 nel formato giusto per Discord
-    const transcoder = new prism.FFmpeg({
-      args: [
-        "-analyzeduration", "0",
-        "-loglevel", "0",
-        "-f", "s16le",
-        "-ar", "48000",
-        "-ac", "2"
-      ]
+    // Crea la risorsa audio direttamente dal file MP3
+    const resource = createAudioResource(tempFilePath!, {
+      inputType: StreamType.Arbitrary,
+      inlineVolume: true,
     });
-
-    logger.info({ guildId, text }, "TTS: avvio transcodifica con FFmpeg");
-
-    // Invia lo stream MP3 attraverso FFmpeg
-    const pcmStream = mp3Stream.pipe(transcoder);
-
-    // Crea la risorsa audio dal PCM
-    const resource = createAudioResource(pcmStream, {
-      inputType: StreamType.Raw,
-      inlineVolume: true
-    });
-    logger.info({ guildId, text }, "TTS: risorsa audio creata da PCM");
+    logger.info({ guildId, text }, "TTS: risorsa audio creata");
 
     // Ottieni il player
     const player = players.get(guildId);
@@ -243,9 +223,6 @@ async function playFromQueue(
     }
 
     // Aggiungi listener per gli errori
-    transcoder.on("error", (err) => {
-      logger.error({ err, guildId }, "TTS: ERRORE TRANSCODER FFmpeg");
-    });
     player.on("error", (err) => {
       logger.error({ err, guildId }, "TTS: ERRORE PLAYER DURANTE RIPRODUZIONE");
     });
@@ -263,6 +240,20 @@ async function playFromQueue(
       text,
     }, "TTS: errore durante playFromQueue");
     isPlaying.set(guildId, false);
+  } finally {
+    // Elimina il file temporaneo dopo un po' per sicurezza
+    if (tempFilePath) {
+      const filePath = tempFilePath; // Capture in a const for closure
+      setTimeout(() => {
+        fs.unlink(filePath, (err) => {
+          if (err) {
+            logger.warn({ err, tempFilePath: filePath }, "TTS: impossibile eliminare file temporaneo");
+          } else {
+            logger.debug({ tempFilePath: filePath }, "TTS: file temporaneo eliminato");
+          }
+        });
+      }, 10000); // Elimina dopo 10 secondi
+    }
   }
 }
 
