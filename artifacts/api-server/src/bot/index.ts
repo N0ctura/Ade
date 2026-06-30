@@ -1,3 +1,5 @@
+// Importa tts.ts PRIMA di tutto per settare FFMPEG_PATH
+import { handleMessageForTTS, handleVoiceStateUpdate } from "./tts.js";
 import {
   Client,
   GatewayIntentBits,
@@ -25,7 +27,6 @@ import { fetchPlayerByUsername, fetchClanById } from "./wolvesville.js";
 import { generateProfileCard } from "./profile-card.js";
 import { handleMemberJoin, handleMemberLeave } from "./welcome-leave.js";
 import { setDiscordClient } from "./discord-api.js";
-import { handleMessageForTTS, handleVoiceStateUpdate } from "./tts.js";
 
 type BotCommand = typeof sondaggioCommand | typeof impostazioniCommand | typeof debugTempliCommand | typeof fineCommand;
 

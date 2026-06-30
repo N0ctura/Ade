@@ -1,3 +1,14 @@
+// 1. Prima importiamo ffmpeg-static e settiamo FFMPEG_PATH
+import ffmpegStatic from "ffmpeg-static";
+if (ffmpegStatic) {
+  process.env.FFMPEG_PATH = ffmpegStatic;
+  // Importiamo logger dopo perché logger usa altre cose
+  import("./../lib/logger.js").then(({ logger }) => {
+    logger.info({ path: ffmpegStatic }, "TTS: FFmpeg configurato");
+  });
+}
+
+// 2. POI importiamo @discordjs/voice
 import {
   joinVoiceChannel,
   createAudioPlayer,
@@ -15,18 +26,11 @@ import { loadConfig, saveConfig, type GuildTTSConfig } from "./storage.js";
 import https from "node:https";
 import fs from "node:fs";
 import path from "node:path";
-import ffmpegStatic from "ffmpeg-static";
 
 // Assicuriamoci che la cartella assets esista
 const ASSETS_DIR = path.join(process.cwd(), "assets");
 if (!fs.existsSync(ASSETS_DIR)) {
   fs.mkdirSync(ASSETS_DIR, { recursive: true });
-}
-
-// Setta la variabile d'ambiente FFMPEG_PATH per @discordjs/voice
-if (ffmpegStatic) {
-  process.env.FFMPEG_PATH = ffmpegStatic;
-  logger.info({ path: ffmpegStatic }, "TTS: FFmpeg configurato");
 }
 
 // Map per tenere traccia delle connessioni vocali per ogni guild
