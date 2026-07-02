@@ -174,6 +174,24 @@ export interface GuildLogsConfig {
   interceptUsers?: boolean;
 }
 
+export interface RoseLobbyParticipant {
+  userId: string;
+  username: string;
+  joinedAt: string;
+}
+
+export interface RoseLobby {
+  id: string;
+  guildId: string;
+  channelId: string;
+  messageId: string;
+  title: string;
+  participants: RoseLobbyParticipant[];
+  reserves: RoseLobbyParticipant[];
+  removedParticipants: RoseLobbyParticipant[];
+  createdAt: string;
+}
+
 export interface BotConfig {
   pollChannelName: string | null;
   notifyChannelNames: string[];
@@ -191,6 +209,8 @@ export interface BotConfig {
   ttsConfigs?: GuildTTSConfig[];
   logsConfigs?: GuildLogsConfig[];
   deletedModifiedLogs?: DeletedModifiedLog[];
+  roseLobbyChannelId?: string;
+  activeRoseLobby?: RoseLobby;
 }
 
 const DEFAULT_CONFIG: BotConfig = {

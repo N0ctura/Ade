@@ -14,12 +14,14 @@ import {
   type TextChannel,
   type GuildMember,
   type VoiceState,
+  type ButtonInteraction,
 } from "discord.js";
 import { logger } from "../lib/logger.js";
 import * as sondaggioCommand from "./commands/sondaggio.js";
 import * as impostazioniCommand from "./commands/impostazioni.js";
 import * as debugTempliCommand from "./commands/debug-templi.js";
 import * as fineCommand from "./commands/fine.js";
+import * as roseCommand from "./commands/rose.js";
 import { BOT_CONFIG } from "./config.js";
 import { loadConfig, saveConfig, initStorage, type DeletedModifiedLog, type GuildLogsConfig } from "./storage.js";
 import { schedulePollClose } from "./poll-timer.js";
@@ -28,13 +30,14 @@ import { generateProfileCard } from "./profile-card.js";
 import { handleMemberJoin, handleMemberLeave } from "./welcome-leave.js";
 import { setDiscordClient } from "./discord-api.js";
 
-type BotCommand = typeof sondaggioCommand | typeof impostazioniCommand | typeof debugTempliCommand | typeof fineCommand;
+type BotCommand = typeof sondaggioCommand | typeof impostazioniCommand | typeof debugTempliCommand | typeof fineCommand | typeof roseCommand;
 
 const commands = new Collection<string, BotCommand>();
 commands.set(sondaggioCommand.data.name, sondaggioCommand);
 commands.set(impostazioniCommand.data.name, impostazioniCommand);
 commands.set(debugTempliCommand.data.name, debugTempliCommand);
 commands.set(fineCommand.data.name, fineCommand);
+commands.set(roseCommand.data.name, roseCommand);
 
 function timeAgo(dateStr: string | null | undefined): string {
   if (!dateStr) return "Sconosciuto";
@@ -153,6 +156,7 @@ export async function startBot(): Promise<void> {
       impostazioniCommand.data.toJSON(),
       debugTempliCommand.data.toJSON(),
       fineCommand.data.toJSON(),
+      roseCommand.data.toJSON(),
     ];
 
     try {
@@ -245,6 +249,14 @@ export async function startBot(): Promise<void> {
         : `✅ **Voto registrato!** Hai votato: **${label}**`;
       await interaction.reply({ content: msg, ephemeral: true });
       return;
+    }
+
+    if (interaction.isButton()) {
+      const customId = interaction.customId;
+      if (customId === "rose_join" || customId === "rose_reserve" || customId === "rose_leave") {
+        await roseCommand.handleButtonInteraction(interaction as ButtonInteraction);
+        return;
+      }
     }
 
     if (!interaction.isChatInputCommand()) return;
