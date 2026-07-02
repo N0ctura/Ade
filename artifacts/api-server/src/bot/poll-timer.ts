@@ -5,10 +5,12 @@ import {
   ActionRowBuilder,
   StringSelectMenuBuilder,
   EmbedBuilder,
+  AttachmentBuilder,
 } from "discord.js";
 import { logger } from "../lib/logger.js";
 import { loadConfig, saveConfig, getMessages, type ActivePoll } from "./storage.js";
 import { normalize } from "./normalize.js";
+import { loadImage } from "@napi-rs/canvas";
 
 let activeTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -96,6 +98,11 @@ function splitFieldValue(lines: string[], maxLen = EMBED_FIELD_MAX): string[] {
   return chunks.length > 0 ? chunks : ["—"];
 }
 
+async function getWinnerImageBuffer(imageUrl: string): Promise<Buffer> {
+  const img = await loadImage(imageUrl);
+  return img.toBuffer();
+}
+
 async function sendTempleSummaries(
   guild: Guild,
   voterMap: Map<string, string>,
@@ -128,6 +135,16 @@ async function sendTempleSummaries(
 
   const roles = guild.roles.cache.filter((r) => r.name !== "@everyone");
 
+  let winnerAttachment: AttachmentBuilder | undefined;
+  if (winnerImageUrl) {
+    try {
+      const winnerImageBuffer = await getWinnerImageBuffer(winnerImageUrl);
+      winnerAttachment = new AttachmentBuilder(winnerImageBuffer, { name: "winner-quest.png" });
+    } catch (err) {
+      logger.warn({ err }, "Impossibile caricare l'immagine della missione vincitrice");
+    }
+  }
+
   let matchCount = 0;
   for (const [, role] of roles) {
     const normRole = normalize(role.name);
@@ -159,7 +176,7 @@ async function sendTempleSummaries(
       .setTimestamp()
       .setFooter({ text: role.name });
 
-    if (winnerImageUrl) embed.setImage(winnerImageUrl);
+    if (winnerAttachment) embed.setImage(`attachment://winner-quest.png`);
 
     // Campo "Hanno votato"
     const votedChunks = splitFieldValue(voted.map((l) => `• ${l}`));
@@ -192,7 +209,10 @@ async function sendTempleSummaries(
     }
 
     try {
-      await templeChannel.send({ embeds: [embed] });
+      await templeChannel.send({
+        embeds: [embed],
+        ...(winnerAttachment ? { files: [winnerAttachment] } : {}),
+      });
       logger.info({ role: role.name, channel: templeChannel.name, voted: voted.length, notVoted: notVoted.length }, "Riepilogo inviato");
     } catch (err) {
       logger.warn({ err, role: role.name, channel: templeChannel.name }, "Impossibile inviare riepilogo nel canale tempio — controlla i permessi del bot");
@@ -222,6 +242,7 @@ export async function closePoll(client: Client): Promise<void> {
 
   let resultText: string;
   let winnerImageUrl: string | undefined;
+  let winnerAttachment: AttachmentBuilder | undefined;
 
   if (winners.length === 0) {
     resultText = messages.nessunVoto;
@@ -237,6 +258,14 @@ export async function closePoll(client: Client): Promise<void> {
     const winnerLabel = poll.questLabels[winnerIdx] ?? `Missione ${winnerIdx + 1}`;
     resultText = applyTemplate(messages.missioneVinta, { missione: winnerLabel });
     winnerImageUrl = poll.questImageUrls?.[winnerIdx];
+    if (winnerImageUrl) {
+      try {
+        const winnerImageBuffer = await getWinnerImageBuffer(winnerImageUrl);
+        winnerAttachment = new AttachmentBuilder(winnerImageBuffer, { name: "winner-quest.png" });
+      } catch (err) {
+        logger.warn({ err }, "Impossibile caricare l'immagine della missione vincitrice per il canale sondaggi");
+      }
+    }
   }
 
   for (const [, guild] of client.guilds.cache) {
@@ -257,11 +286,12 @@ export async function closePoll(client: Client): Promise<void> {
       .setColor(EMBED_COLOR)
       .setTimestamp();
 
-    if (winnerImageUrl) closeEmbed.setThumbnail(winnerImageUrl);
+    if (winnerAttachment) closeEmbed.setImage(`attachment://winner-quest.png`);
 
     await pollChannel.send({
       content: roleMention || undefined,
       embeds: [closeEmbed],
+      ...(winnerAttachment ? { files: [winnerAttachment] } : {}),
       allowedMentions: { roles: roleId ? [roleId] : [] },
     });
 
