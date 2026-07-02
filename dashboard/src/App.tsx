@@ -24,7 +24,8 @@ import {
   CheckSquare,
   X,
   Play,
-  LogOut
+  LogOut,
+  Upload
 } from "lucide-react";
 import { BotStatus, CardConfig, CardLayer, LogEntry, ModuleConfig, DeletedModifiedLog } from "./types";
 import LoginTailwind from "./pages/LoginTailwind";
@@ -800,6 +801,73 @@ export default function App() {
     }
   };
 
+  // Handle background upload
+  const handleBackgroundUpload = (e: React.ChangeEvent<HTMLInputElement>, section: "welcome" | "leave") => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = async () => {
+        const card = getValidCard(section);
+
+        // Check if there's already a background layer
+        let bgLayer = card.layers.find(l => l.type === "background");
+        if (!bgLayer) {
+          bgLayer = {
+            id: `bg`,
+            type: "background",
+            visible: true,
+            x: 0,
+            y: 0,
+            width: img.width,
+            height: img.height,
+            url: event.target?.result as string
+          };
+
+          setConfigs(prev => ({
+            ...prev,
+            [section]: {
+              ...prev[section],
+              card: {
+                width: img.width,
+                height: img.height,
+                layers: [bgLayer, ...card.layers]
+              }
+            }
+          }));
+        } else {
+          const updatedLayer = {
+            ...bgLayer,
+            url: event.target?.result as string,
+            width: img.width,
+            height: img.height
+          };
+
+          const updatedLayers = card.layers.map(l => l.id === bgLayer!.id ? updatedLayer : l);
+
+          setConfigs(prev => ({
+            ...prev,
+            [section]: {
+              ...prev[section],
+              card: {
+                width: img.width,
+                height: img.height,
+                layers: updatedLayers
+              }
+            }
+          }));
+        }
+
+        await saveSection(section, configs[section], "Immagine di sfondo caricata con successo!");
+        showToast("Immagine di sfondo caricata con successo!");
+      };
+      img.src = event.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  };
+
   // Scheduled Messages operations
   const handleAddScheduledMessage = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1363,11 +1431,32 @@ export default function App() {
                           <button
                             key={index}
                             onClick={() => {
-                              const bgLayer = configs[activeTab].card.layers.find(l => l.id === "bg");
-                              if (bgLayer) {
+                              let bgLayer = configs[activeTab].card.layers.find(l => l.id === "bg");
+                              if (!bgLayer) {
+                                bgLayer = {
+                                  id: "bg",
+                                  type: "background",
+                                  visible: true,
+                                  x: 0,
+                                  y: 0,
+                                  width: 800,
+                                  height: 400,
+                                  url: preset.url
+                                };
+                                setConfigs(prev => ({
+                                  ...prev,
+                                  [activeTab]: {
+                                    ...prev[activeTab],
+                                    card: {
+                                      ...prev[activeTab].card,
+                                      layers: [bgLayer, ...prev[activeTab].card.layers]
+                                    }
+                                  }
+                                }));
+                              } else {
                                 updateActiveCardLayer(activeTab, { ...bgLayer, url: preset.url });
-                                saveSection(activeTab, configs[activeTab], `Sfondo ${preset.name} impostato!`);
                               }
+                              saveSection(activeTab, configs[activeTab], `Sfondo ${preset.name} impostato!`);
                             }}
                             className="text-left group relative h-16 rounded-lg overflow-hidden border border-neutral-800 hover:border-indigo-500 transition-all focus:outline-none"
                           >
@@ -1376,6 +1465,21 @@ export default function App() {
                             <span className="absolute bottom-1.5 left-2 text-[10px] font-bold text-white tracking-wide">{preset.name}</span>
                           </button>
                         ))}
+                      </div>
+
+                      {/* Upload Custom Background */}
+                      <div className="pt-2 border-t border-neutral-800">
+                        <span className="text-xs font-bold text-neutral-400 uppercase block mb-2">Carica Sfondo Personalizzato</span>
+                        <label className="flex items-center justify-center gap-2 w-full py-3 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 rounded-lg cursor-pointer transition-colors border border-neutral-700 hover:border-indigo-500">
+                          <Upload className="w-4 h-4" />
+                          <span className="text-xs font-semibold uppercase">Seleziona Immagine</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={(e) => handleBackgroundUpload(e, activeTab)}
+                          />
+                        </label>
                       </div>
                     </div>
                   </div>
