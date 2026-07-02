@@ -23,9 +23,13 @@ import {
   Layers,
   CheckSquare,
   X,
-  Play
+  Play,
+  LogOut,
+  Upload
 } from "lucide-react";
 import { BotStatus, CardConfig, CardLayer, LogEntry, ModuleConfig, DeletedModifiedLog } from "./types";
+import LoginTailwind from "./pages/LoginTailwind";
+import { isAuthenticated, removeAccessToken } from "./config/discord";
 
 // Default local variables for replacing preset text in live preview
 const replaceVars = (text: string, mockUsername = "N0ctura", memberCount = 412) => {
@@ -43,6 +47,7 @@ interface CardCanvasPreviewProps {
   selectedLayerId: string | null;
   onLayerSelect: (id: string | null) => void;
   onLayerDrag: (id: string, position: { x: number; y: number }) => void;
+  onLayerResize: (id: string, size: { x: number; y: number; width: number; height: number }) => void;
 }
 
 const CardCanvasPreview: React.FC<CardCanvasPreviewProps> = ({
@@ -51,11 +56,14 @@ const CardCanvasPreview: React.FC<CardCanvasPreviewProps> = ({
   selectedLayerId,
   onLayerSelect,
   onLayerDrag,
+  onLayerResize,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [isResizing, setIsResizing] = useState<number | null>(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
-  
+  const [resizeStart, setResizeStart] = useState({ x: 0, y: 0, layer: null as CardLayer | null });
+
   // Keep track of loaded images to avoid infinite load loops and flickering
   const imageCacheRef = useRef<Record<string, HTMLImageElement>>({});
   const [, forceUpdate] = useState({});
@@ -128,7 +136,7 @@ const CardCanvasPreview: React.FC<CardCanvasPreviewProps> = ({
         case "avatar":
           const avatarUrl = "https://cdn.discordapp.com/embed/avatars/0.png";
           let avatarImg = imageCacheRef.current[avatarUrl];
-          
+
           if (!avatarImg) {
             avatarImg = new Image();
             avatarImg.crossOrigin = "anonymous";
@@ -141,7 +149,7 @@ const CardCanvasPreview: React.FC<CardCanvasPreviewProps> = ({
 
           if (avatarImg && avatarImg.complete) {
             const radius = ((layer.borderRadius ?? 50) / 100) * Math.min(layer.width, layer.height);
-            
+
             // Draw rounded avatar clipping
             ctx.beginPath();
             if (radius === 0) {
@@ -151,7 +159,7 @@ const CardCanvasPreview: React.FC<CardCanvasPreviewProps> = ({
             }
             ctx.closePath();
             ctx.clip();
-            
+
             ctx.drawImage(avatarImg, layer.x, layer.y, layer.width, layer.height);
             ctx.restore();
             ctx.save();
@@ -202,14 +210,15 @@ const CardCanvasPreview: React.FC<CardCanvasPreviewProps> = ({
         ctx.lineWidth = 2;
         ctx.setLineDash([6, 4]);
         ctx.strokeRect(layer.x, layer.y, layer.width, layer.height);
-        
-        // Draw little handles
-        ctx.fillStyle = "#5865F2";
-        ctx.fillRect(layer.x - 4, layer.y - 4, 8, 8);
-        ctx.fillRect(layer.x + layer.width - 4, layer.y - 4, 8, 8);
-        ctx.fillRect(layer.x - 4, layer.y + layer.height - 4, 8, 8);
-        ctx.fillRect(layer.x + layer.width - 4, layer.y + layer.height - 4, 8, 8);
+
+        // Draw resize handles
         ctx.setLineDash([]);
+        ctx.fillStyle = "#5865F2";
+        const handleSize = 8;
+        ctx.fillRect(layer.x - handleSize / 2, layer.y - handleSize / 2, handleSize, handleSize); // tl
+        ctx.fillRect(layer.x + layer.width - handleSize / 2, layer.y - handleSize / 2, handleSize, handleSize); // tr
+        ctx.fillRect(layer.x - handleSize / 2, layer.y + layer.height - handleSize / 2, handleSize, handleSize); // bl
+        ctx.fillRect(layer.x + layer.width - handleSize / 2, layer.y + layer.height - handleSize / 2, handleSize, handleSize); // br
       }
 
       ctx.restore();
@@ -220,7 +229,7 @@ const CardCanvasPreview: React.FC<CardCanvasPreviewProps> = ({
     if (!canvasRef.current || !cardConfig) return null;
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
-    
+
     // Convert click coordinates to canvas logical scale
     const scaledX = ((x - rect.left) / rect.width) * cardConfig.width;
     const scaledY = ((y - rect.top) / rect.height) * cardConfig.height;
@@ -237,7 +246,59 @@ const CardCanvasPreview: React.FC<CardCanvasPreviewProps> = ({
     });
   };
 
+  const getHandleAtPosition = (x: number, y: number) => {
+    if (!canvasRef.current || !cardConfig || !selectedLayerId) return -1;
+    const canvas = canvasRef.current;
+    const rect = canvas.getBoundingClientRect();
+    const scaledX = ((x - rect.left) / rect.width) * cardConfig.width;
+    const scaledY = ((y - rect.top) / rect.height) * cardConfig.height;
+
+    const layer = cardConfig.layers.find(l => l.id === selectedLayerId);
+    if (!layer) return -1;
+
+    const handleSize = 8;
+    const handles = [
+      { x: layer.x, y: layer.y }, // tl
+      { x: layer.x + layer.width, y: layer.y }, // tr
+      { x: layer.x, y: layer.y + layer.height }, // bl
+      { x: layer.x + layer.width, y: layer.y + layer.height }, // br
+    ];
+
+    for (let i = 0; i < handles.length; i++) {
+      const h = handles[i];
+      if (
+        scaledX >= h.x - handleSize / 2 - 4 &&
+        scaledX <= h.x + handleSize / 2 + 4 &&
+        scaledY >= h.y - handleSize / 2 - 4 &&
+        scaledY <= h.y + handleSize / 2 + 4
+      ) {
+        return i;
+      }
+    }
+    return -1;
+  };
+
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!canvasRef.current || !cardConfig) return;
+
+    const handleIndex = getHandleAtPosition(e.clientX, e.clientY);
+    if (handleIndex >= 0 && selectedLayerId) {
+      const layer = cardConfig.layers.find(l => l.id === selectedLayerId);
+      if (!layer) return;
+
+      const rect = canvasRef.current.getBoundingClientRect();
+      const scaledX = ((e.clientX - rect.left) / rect.width) * cardConfig.width;
+      const scaledY = ((e.clientY - rect.top) / rect.height) * cardConfig.height;
+
+      setIsResizing(handleIndex);
+      setResizeStart({
+        x: scaledX,
+        y: scaledY,
+        layer: { ...layer },
+      });
+      return;
+    }
+
     const layer = getLayerAtPosition(e.clientX, e.clientY);
     if (layer) {
       setIsDragging(true);
@@ -258,12 +319,49 @@ const CardCanvasPreview: React.FC<CardCanvasPreviewProps> = ({
   };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!isDragging || !selectedLayerId || !canvasRef.current) return;
+    if (!canvasRef.current || !cardConfig) return;
 
-    const canvas = canvasRef.current;
-    const rect = canvas.getBoundingClientRect();
+    const rect = canvasRef.current.getBoundingClientRect();
     const scaledX = ((e.clientX - rect.left) / rect.width) * cardConfig.width;
     const scaledY = ((e.clientY - rect.top) / rect.height) * cardConfig.height;
+
+    if (isResizing !== null && resizeStart.layer && selectedLayerId) {
+      const original = resizeStart.layer;
+      let newX = original.x;
+      let newY = original.y;
+      let newWidth = original.width;
+      let newHeight = original.height;
+
+      const dx = scaledX - resizeStart.x;
+      const dy = scaledY - resizeStart.y;
+
+      if (isResizing === 0) { // TL
+        newX = original.x + dx;
+        newY = original.y + dy;
+        newWidth = original.width - dx;
+        newHeight = original.height - dy;
+      } else if (isResizing === 1) { // TR
+        newY = original.y + dy;
+        newWidth = original.width + dx;
+        newHeight = original.height - dy;
+      } else if (isResizing === 2) { // BL
+        newX = original.x + dx;
+        newWidth = original.width - dx;
+        newHeight = original.height + dy;
+      } else if (isResizing === 3) { // BR
+        newWidth = original.width + dx;
+        newHeight = original.height + dy;
+      }
+
+      // Minimum size
+      if (newWidth < 20) newWidth = 20;
+      if (newHeight < 20) newHeight = 20;
+
+      onLayerResize(selectedLayerId, { x: newX, y: newY, width: newWidth, height: newHeight });
+      return;
+    }
+
+    if (!isDragging || !selectedLayerId || !canvasRef.current) return;
 
     onLayerDrag(selectedLayerId, {
       x: Math.round(scaledX - dragOffset.x),
@@ -273,6 +371,8 @@ const CardCanvasPreview: React.FC<CardCanvasPreviewProps> = ({
 
   const handleMouseUp = () => {
     setIsDragging(false);
+    setIsResizing(null);
+    setResizeStart({ x: 0, y: 0, layer: null });
   };
 
   return (
@@ -296,8 +396,24 @@ const CardCanvasPreview: React.FC<CardCanvasPreviewProps> = ({
 
 // Main App
 export default function App() {
+  if (!isAuthenticated()) {
+    return <LoginTailwind />;
+  }
+
+  const handleLogout = () => {
+    removeAccessToken();
+    window.location.href = "/";
+  };
+
   const [activeTab, setActiveTab] = useState<"home" | "welcome" | "leave" | "autorole" | "messages" | "voice" | "logs">("home");
-  
+
+  // Server Selection (Server Picker)
+  const [selectedGuildId, setSelectedGuildId] = useState<string | null>(null);
+  const [guilds, setGuilds] = useState<any[]>([]);
+  const [channels, setChannels] = useState<any[]>([]);
+  const [voiceChannels, setVoiceChannels] = useState<any[]>([]);
+  const [roles, setRoles] = useState<any[]>([]);
+
   // Server Status & Logs state
   const [botStatus, setBotStatus] = useState<BotStatus>({
     online: true,
@@ -309,7 +425,7 @@ export default function App() {
     logs: [],
     repoUrl: "https://github.com/N0ctura/Ade"
   });
-  
+
   // Complete Configuration state
   const [configs, setConfigs] = useState<ModuleConfig>({
     welcome: {
@@ -355,14 +471,6 @@ export default function App() {
   const [isRestarting, setIsRestarting] = useState(false);
   const [simulatedTime, setSimulatedTime] = useState<string>("");
 
-  // Preset Unsplash backgrounds for easy decoration
-  const bgPresets = [
-    { name: "Neon Synth", url: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800&auto=format&fit=crop&q=80" },
-    { name: "Minimal Dark", url: "https://images.unsplash.com/photo-1550684848-fac1c5b4e853?w=800&auto=format&fit=crop&q=80" },
-    { name: "Astral Nebula", url: "https://images.unsplash.com/photo-1506318137071-a8e063b4bec0?w=800&auto=format&fit=crop&q=80" },
-    { name: "Cosmic Glow", url: "https://images.unsplash.com/photo-1541701494587-cb58502866ab?w=800&auto=format&fit=crop&q=80" },
-  ];
-
   // Forms state for Scheduled Messages
   const [schedChannel, setSchedChannel] = useState("112233445566778805");
   const [schedText, setSchedText] = useState("");
@@ -378,6 +486,89 @@ export default function App() {
     }, 3500);
   };
 
+  // Helper to get valid card config with defaults
+  const getValidCard = (section: "welcome" | "leave") => {
+    const card = configs[section].card;
+    if (!card || typeof card !== "object") return { width: 800, height: 400, layers: [] };
+    return {
+      width: card.width || 800,
+      height: card.height || 400,
+      layers: Array.isArray(card.layers) ? card.layers : []
+    };
+  };
+
+  // Load guild-specific data
+  const loadGuildData = useCallback(async (guildId: string) => {
+    if (!guildId) return;
+
+    try {
+      // Load guild config
+      const configRes = await fetch("/api/discord/config");
+      let guildConfig: any = {};
+      if (configRes.ok) {
+        const allConfigs = await configRes.json();
+        guildConfig = allConfigs.find((c: any) => c.guildId === guildId) || {};
+      }
+
+      // Load TTS config
+      const ttsRes = await fetch(`/api/discord/tts-config/${guildId}`);
+      let ttsConfig = configs.tts;
+      if (ttsRes.ok) {
+        const ttsData = await ttsRes.json();
+        ttsConfig = {
+          enabled: ttsData.ttsEnabled ?? false,
+          sourceChannelId: ttsData.ttsSourceChannelId || "",
+          voiceChannelId: ttsData.ttsVoiceChannelId || "",
+          language: ttsData.ttsLanguage || "it",
+          prefixes: ttsData.ttsPrefixes || [",", ";", "!"]
+        };
+      }
+
+      setConfigs(prev => ({
+        ...prev,
+        welcome: {
+          enabled: guildConfig.welcomeEnabled ?? true,
+          channelId: guildConfig.welcomeChannelId || "",
+          message: guildConfig.welcomeMessage || "Benvenuto {user} nel server! Leggi il regolamento.",
+          card: getValidCard("welcome")
+        },
+        leave: {
+          enabled: guildConfig.leaveEnabled ?? true,
+          channelId: guildConfig.leaveChannelId || "",
+          message: guildConfig.leaveMessage || "Ci mancherai, {username}!",
+          card: getValidCard("leave")
+        },
+        autoRole: {
+          enabled: guildConfig.autoroleEnabled ?? false,
+          roleIds: guildConfig.autoroleRoleIds || [],
+          roles: []
+        },
+        tts: ttsConfig
+      }));
+
+      // Load channels
+      const channelsRes = await fetch(`/api/discord/guilds/${guildId}/channels`);
+      if (channelsRes.ok) {
+        const data = await channelsRes.json();
+        setChannels(data);
+      }
+
+      const voiceRes = await fetch(`/api/discord/guilds/${guildId}/voice-channels`);
+      if (voiceRes.ok) {
+        const data = await voiceRes.json();
+        setVoiceChannels(data);
+      }
+
+      const rolesRes = await fetch(`/api/discord/guilds/${guildId}/roles`);
+      if (rolesRes.ok) {
+        const data = await rolesRes.json();
+        setRoles(data);
+      }
+    } catch (err) {
+      console.error("Error loading guild data:", err);
+    }
+  }, []);
+
   // Fetch initial data from server
   const loadData = useCallback(async () => {
     try {
@@ -386,26 +577,30 @@ export default function App() {
         const data = await statusRes.json();
         setBotStatus(data);
       }
-      
-      const configRes = await fetch("/api/bot/config");
-      if (configRes.ok) {
-        const data = await configRes.json();
-        setConfigs(data);
-      }
 
       const logsRes = await fetch("/api/bot/logs/deleted-modified");
       if (logsRes.ok) {
         const data = await logsRes.json();
         setDeletedModifiedLogs(data);
       }
+
+      // Load Guilds for server picker
+      const guildsRes = await fetch("/api/discord/guilds");
+      if (guildsRes.ok) {
+        const data = await guildsRes.json();
+        setGuilds(data);
+        if (data.length > 0 && !selectedGuildId) {
+          setSelectedGuildId(data[0].id);
+        }
+      }
     } catch (err) {
       console.error("Error loading server-side dashboard data:", err);
     }
-  }, []);
+  }, [selectedGuildId]);
 
   useEffect(() => {
     loadData();
-    
+
     // Set simulated clock for local UTC status
     const updateTime = () => {
       const now = new Date();
@@ -416,29 +611,75 @@ export default function App() {
     return () => clearInterval(timer);
   }, [loadData]);
 
+  useEffect(() => {
+    if (selectedGuildId) {
+      loadGuildData(selectedGuildId);
+    }
+  }, [selectedGuildId, loadGuildData]);
+
   // General Post Config Saver
   const saveSection = async (section: keyof ModuleConfig, payload: any, message: string) => {
     try {
-      const res = await fetch(`/api/bot/config/${section}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setConfigs(prev => ({
-          ...prev,
-          [section]: data.config
-        }));
-        showToast(message, "success");
-        // Reload status to fetch fresh log entries
-        const statusRes = await fetch("/api/bot/status");
-        if (statusRes.ok) {
-          const freshStatus = await statusRes.json();
-          setBotStatus(prev => ({ ...prev, logs: freshStatus.logs }));
+      const selectedGuild = guilds.find(g => g.id === selectedGuildId);
+
+      if (section === "welcome" || section === "leave" || section === "autoRole" || section === "logsConfig") {
+        // Get current config
+        const configRes = await fetch("/api/discord/config");
+        let allConfigs = [];
+        if (configRes.ok) {
+          allConfigs = await configRes.json();
         }
-      } else {
-        showToast("Errore durante il salvataggio", "error");
+
+        const existingConfig = allConfigs.find((c: any) => c.guildId === selectedGuildId);
+        const guildConfig: any = existingConfig || {
+          guildId: selectedGuildId,
+          guildName: selectedGuild?.name || "Unknown"
+        };
+
+        if (section === "welcome") {
+          guildConfig.welcomeEnabled = payload.enabled;
+          guildConfig.welcomeChannelId = payload.channelId;
+          guildConfig.welcomeMessage = payload.message;
+          guildConfig.welcomeCard = payload.card;
+        } else if (section === "leave") {
+          guildConfig.leaveEnabled = payload.enabled;
+          guildConfig.leaveChannelId = payload.channelId;
+          guildConfig.leaveMessage = payload.message;
+          guildConfig.leaveCard = payload.card;
+        } else if (section === "autoRole") {
+          guildConfig.autoroleEnabled = payload.enabled;
+          guildConfig.autoroleRoleIds = payload.roleIds;
+        }
+
+        const res = await fetch("/api/discord/config", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(guildConfig)
+        });
+
+        if (res.ok) {
+          setConfigs(prev => ({ ...prev, [section]: payload }));
+          showToast(message, "success");
+        } else {
+          showToast("Errore durante il salvataggio", "error");
+        }
+      } else if (section === "tts") {
+        const ttsConfig = {
+          guildId: selectedGuildId,
+          guildName: selectedGuild?.name || "Unknown",
+          ...payload
+        };
+
+        const res = await fetch("/api/discord/tts-config", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(ttsConfig)
+        });
+
+        if (res.ok) {
+          setConfigs(prev => ({ ...prev, [section]: payload }));
+          showToast(message, "success");
+        }
       }
     } catch (err) {
       console.error(err);
@@ -450,7 +691,7 @@ export default function App() {
   const updateActiveCardLayer = (section: "welcome" | "leave", updatedLayer: CardLayer) => {
     const card = configs[section].card;
     const updatedLayers = card.layers.map(l => l.id === updatedLayer.id ? updatedLayer : l);
-    
+
     setConfigs(prev => ({
       ...prev,
       [section]: {
@@ -463,10 +704,10 @@ export default function App() {
     }));
   };
 
-  const addCardLayer = (section: "welcome" | "leave", type: "image" | "text" | "avatar") => {
-    const card = configs[section].card;
+  const addCardLayer = (section: "welcome" | "leave", type: "image" | "text" | "avatar" | "background") => {
+    const card = getValidCard(section);
     const id = `${type}-${Date.now()}`;
-    
+
     let newLayer: CardLayer = {
       id,
       type,
@@ -495,10 +736,15 @@ export default function App() {
         borderColor: "#5865f2",
         borderRadius: 50
       };
-    } else if (type === "image") {
+    } else if (type === "background") {
       newLayer = {
-        ...newLayer,
-        url: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200&auto=format&fit=crop&q=80"
+        id,
+        type: "background",
+        visible: true,
+        x: 0,
+        y: 0,
+        width: card.width,
+        height: card.height
       };
     }
 
@@ -517,7 +763,7 @@ export default function App() {
   };
 
   const deleteCardLayer = (section: "welcome" | "leave", layerId: string) => {
-    const card = configs[section].card;
+    const card = getValidCard(section);
     setConfigs(prev => ({
       ...prev,
       [section]: {
@@ -533,12 +779,12 @@ export default function App() {
   };
 
   const moveLayerOrder = (section: "welcome" | "leave", index: number, direction: "up" | "down") => {
-    const card = configs[section].card;
+    const card = getValidCard(section);
     const newLayers = [...card.layers];
     const targetIndex = direction === "up" ? index + 1 : index - 1;
-    
+
     if (targetIndex < 0 || targetIndex >= newLayers.length) return;
-    
+
     // Swap layers
     const temp = newLayers[index];
     newLayers[index] = newLayers[targetIndex];
@@ -557,11 +803,85 @@ export default function App() {
   };
 
   const handleLayerDrag = (section: "welcome" | "leave", id: string, position: { x: number; y: number }) => {
-    const card = configs[section].card;
+    const card = getValidCard(section);
     const layer = card.layers.find(l => l.id === id);
     if (layer) {
       updateActiveCardLayer(section, { ...layer, ...position });
     }
+  };
+
+  const handleLayerResize = (section: "welcome" | "leave", id: string, data: { x: number; y: number; width: number; height: number }) => {
+    const card = getValidCard(section);
+    const layer = card.layers.find(l => l.id === id);
+    if (layer) {
+      updateActiveCardLayer(section, { ...layer, ...data });
+    }
+  };
+
+  // Handle background upload
+  const handleBackgroundUpload = (e: React.ChangeEvent<HTMLInputElement>, section: "welcome" | "leave") => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const card = getValidCard(section);
+
+        // Check if there's already a background layer
+        let bgLayer = card.layers.find(l => l.type === "background");
+        if (!bgLayer) {
+          bgLayer = {
+            id: `background-${Date.now()}`,
+            type: "background",
+            visible: true,
+            x: 0,
+            y: 0,
+            width: img.width,
+            height: img.height,
+            url: event.target?.result as string
+          };
+
+          setConfigs(prev => ({
+            ...prev,
+            [section]: {
+              ...prev[section],
+              card: {
+                width: img.width,
+                height: img.height,
+                layers: [bgLayer, ...card.layers]
+              }
+            }
+          }));
+        } else {
+          const updatedLayer = {
+            ...bgLayer,
+            url: event.target?.result as string,
+            width: img.width,
+            height: img.height
+          };
+
+          const updatedLayers = card.layers.map(l => l.id === bgLayer!.id ? updatedLayer : l);
+
+          setConfigs(prev => ({
+            ...prev,
+            [section]: {
+              ...prev[section],
+              card: {
+                width: img.width,
+                height: img.height,
+                layers: updatedLayers
+              }
+            }
+          }));
+        }
+
+        showToast("Immagine di sfondo caricata con successo!");
+      };
+      img.src = event.target?.result as string;
+    };
+    reader.readAsDataURL(file);
   };
 
   // Scheduled Messages operations
@@ -601,7 +921,7 @@ export default function App() {
     setTimeout(async () => {
       setIsRestarting(false);
       showToast("AdeBot riavviato e connesso con successo!", "success");
-      
+
       // Update logs in server
       try {
         await fetch("/api/bot/status");
@@ -632,7 +952,7 @@ export default function App() {
         const data = await res.json();
         setDeletedModifiedLogs(data.logs);
         showToast(`Simulazione riuscita: Messaggio ${data.log.type === "deleted" ? "Eliminato" : "Modificato"}!`);
-        
+
         // Refresh console log list as well
         const statusRes = await fetch("/api/bot/status");
         if (statusRes.ok) {
@@ -667,14 +987,13 @@ export default function App() {
 
   return (
     <div className="flex h-screen bg-[#111214] text-neutral-200 overflow-hidden font-sans select-none">
-      
+
       {/* Toast Alert Banner */}
       {toastMessage && (
-        <div className={`fixed bottom-6 right-6 z-50 flex items-center gap-3 px-5 py-4 rounded-xl border shadow-2xl transition-all duration-300 animate-slide-up ${
-          toastMessage.type === "success" 
-            ? "bg-emerald-950/90 border-emerald-500/40 text-emerald-300" 
-            : "bg-rose-950/90 border-rose-500/40 text-rose-300"
-        }`}>
+        <div className={`fixed bottom-6 right-6 z-50 flex items-center gap-3 px-5 py-4 rounded-xl border shadow-2xl transition-all duration-300 animate-slide-up ${toastMessage.type === "success"
+          ? "bg-emerald-950/90 border-emerald-500/40 text-emerald-300"
+          : "bg-rose-950/90 border-rose-500/40 text-rose-300"
+          }`}>
           <div className={`w-2 h-2 rounded-full ${toastMessage.type === "success" ? "bg-emerald-400" : "bg-rose-400"}`} />
           <span className="text-sm font-medium">{toastMessage.text}</span>
           <button className="text-neutral-400 hover:text-white ml-2" onClick={() => setToastMessage(null)}>
@@ -689,9 +1008,9 @@ export default function App() {
           {/* Brand Identity Header */}
           <div className="p-6 border-b border-neutral-900 bg-neutral-950/20 flex flex-col gap-3">
             <div className="flex items-center gap-3">
-              <img 
-                src="https://raw.githubusercontent.com/N0ctura/Ade/main/dashboard/public/celestial-logo-slim.png" 
-                alt="Celestial Logo" 
+              <img
+                src="https://raw.githubusercontent.com/N0ctura/Ade/main/dashboard/public/celestial-logo-slim.png"
+                alt="Celestial Logo"
                 className="h-9 w-auto object-contain rounded"
                 referrerPolicy="no-referrer"
               />
@@ -708,6 +1027,24 @@ export default function App() {
               <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
             </div>
           </div>
+          {guilds.length > 0 && (
+            <div className="px-6 pb-4 border-b border-neutral-900 bg-neutral-950/20">
+              <label className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider block mb-1">
+                Seleziona Server
+              </label>
+              <select
+                value={selectedGuildId || ""}
+                onChange={(e) => setSelectedGuildId(e.target.value)}
+                className="w-full bg-neutral-800 border border-neutral-700 px-3 py-2 rounded-lg text-xs text-neutral-200 focus:outline-none focus:border-indigo-500"
+              >
+                {guilds.map((guild: any) => (
+                  <option key={guild.id} value={guild.id}>
+                    {guild.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* Navigation Links List */}
           <div className="p-4 space-y-1 overflow-y-auto">
@@ -716,11 +1053,10 @@ export default function App() {
             </span>
             <button
               onClick={() => { setActiveTab("home"); setSelectedLayerId(null); }}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all ${
-                activeTab === "home"
-                  ? "bg-[#5865F2] text-white font-semibold"
-                  : "text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-200"
-              }`}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all ${activeTab === "home"
+                ? "bg-[#5865F2] text-white font-semibold"
+                : "text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-200"
+                }`}
             >
               <Home className="w-4 h-4" />
               <span>Dashboard Casa</span>
@@ -731,33 +1067,30 @@ export default function App() {
             </span>
             <button
               onClick={() => { setActiveTab("welcome"); setSelectedLayerId(null); }}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all ${
-                activeTab === "welcome"
-                  ? "bg-[#5865F2] text-white font-semibold"
-                  : "text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-200"
-              }`}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all ${activeTab === "welcome"
+                ? "bg-[#5865F2] text-white font-semibold"
+                : "text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-200"
+                }`}
             >
               <Plus className="w-4 h-4 text-emerald-400" />
               <span>Messaggio Welcome</span>
             </button>
             <button
               onClick={() => { setActiveTab("leave"); setSelectedLayerId(null); }}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all ${
-                activeTab === "leave"
-                  ? "bg-[#5865F2] text-white font-semibold"
-                  : "text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-200"
-              }`}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all ${activeTab === "leave"
+                ? "bg-[#5865F2] text-white font-semibold"
+                : "text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-200"
+                }`}
             >
               <Trash2 className="w-4 h-4 text-rose-400" />
               <span>Messaggio Leave</span>
             </button>
             <button
               onClick={() => { setActiveTab("autorole"); setSelectedLayerId(null); }}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all ${
-                activeTab === "autorole"
-                  ? "bg-[#5865F2] text-white font-semibold"
-                  : "text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-200"
-              }`}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all ${activeTab === "autorole"
+                ? "bg-[#5865F2] text-white font-semibold"
+                : "text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-200"
+                }`}
             >
               <Shield className="w-4 h-4 text-amber-400" />
               <span>Auto Ruolo automatico</span>
@@ -768,33 +1101,30 @@ export default function App() {
             </span>
             <button
               onClick={() => { setActiveTab("messages"); setSelectedLayerId(null); }}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all ${
-                activeTab === "messages"
-                  ? "bg-[#5865F2] text-white font-semibold"
-                  : "text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-200"
-              }`}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all ${activeTab === "messages"
+                ? "bg-[#5865F2] text-white font-semibold"
+                : "text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-200"
+                }`}
             >
               <Clock className="w-4 h-4 text-purple-400" />
               <span>Messaggi Automatici</span>
             </button>
             <button
               onClick={() => { setActiveTab("voice"); setSelectedLayerId(null); }}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all ${
-                activeTab === "voice"
-                  ? "bg-[#5865F2] text-white font-semibold"
-                  : "text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-200"
-              }`}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all ${activeTab === "voice"
+                ? "bg-[#5865F2] text-white font-semibold"
+                : "text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-200"
+                }`}
             >
               <Volume2 className="w-4 h-4 text-cyan-400" />
               <span>Lettore Vocale TTS</span>
             </button>
             <button
               onClick={() => { setActiveTab("logs"); setSelectedLayerId(null); }}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all ${
-                activeTab === "logs"
-                  ? "bg-[#5865F2] text-white font-semibold"
-                  : "text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-200"
-              }`}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all ${activeTab === "logs"
+                ? "bg-[#5865F2] text-white font-semibold"
+                : "text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-200"
+                }`}
             >
               <Activity className="w-4 h-4 text-rose-400" />
               <span>Log Messaggi (Eliminati/Modificati)</span>
@@ -821,7 +1151,7 @@ export default function App() {
 
       {/* Main Content Area Container */}
       <main className="flex-1 bg-[#313338] overflow-y-auto flex flex-col">
-        
+
         {/* Upper Dashboard Sub-Header */}
         <header className="bg-[#313338] px-8 py-5 border-b border-[#202225] flex justify-between items-center shrink-0 shadow-sm">
           <div>
@@ -853,24 +1183,31 @@ export default function App() {
             <span className="text-xs font-mono font-bold text-neutral-300 bg-neutral-950/30 px-3 py-1.5 rounded-lg border border-neutral-800">
               {botStatus.platform} Host
             </span>
+            <button
+              onClick={handleLogout}
+              className="p-2 hover:bg-neutral-800 rounded-lg transition-colors"
+              title="Logout"
+            >
+              <LogOut className="w-4 h-4 text-neutral-400 hover:text-rose-400" />
+            </button>
           </div>
         </header>
 
         {/* Inner Content Grid */}
         <div className="p-8 flex-1">
-          
+
           {/* TAB: HOME */}
           {activeTab === "home" && (
             <div className="space-y-8 animate-fade-in">
-              
+
               {/* Brand Banner */}
               <div className="relative bg-gradient-to-r from-neutral-900 to-[#1e1f22] border border-neutral-800 rounded-2xl p-8 overflow-hidden shadow-xl flex flex-col md:flex-row items-center gap-6 justify-between">
                 <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/5 rounded-full blur-3xl pointer-events-none" />
                 <div className="flex items-center gap-5">
                   <div className="bg-neutral-950/40 p-3 rounded-2xl border border-neutral-800">
-                    <img 
-                      src="https://raw.githubusercontent.com/N0ctura/Ade/main/dashboard/public/celestial-logo.png" 
-                      alt="Celestial Logo" 
+                    <img
+                      src="https://raw.githubusercontent.com/N0ctura/Ade/main/dashboard/public/celestial-logo.png"
+                      alt="Celestial Logo"
                       className="w-20 h-20 object-contain rounded-xl"
                       referrerPolicy="no-referrer"
                     />
@@ -926,7 +1263,7 @@ export default function App() {
 
               {/* Quick Config modules grid */}
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                
+
                 {/* Active Modules summary card */}
                 <div className="bg-[#2b2d31] border border-neutral-800 rounded-xl overflow-hidden shadow-lg lg:col-span-1">
                   <div className="px-5 py-4 border-b border-neutral-800 bg-neutral-900/20 flex justify-between items-center">
@@ -1014,7 +1351,7 @@ export default function App() {
           {(activeTab === "welcome" || activeTab === "leave") && (
             <div className="space-y-8 animate-fade-in">
               <div className="bg-[#2b2d31] border border-neutral-800 rounded-xl p-6 shadow-lg space-y-6">
-                
+
                 {/* Enable module toggle */}
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-4 bg-neutral-900/20 border border-neutral-800 rounded-lg">
                   <div>
@@ -1049,9 +1386,12 @@ export default function App() {
                       }}
                       className="w-full bg-neutral-900 border border-neutral-800/80 px-4 py-2.5 rounded-lg text-sm text-neutral-200 focus:outline-none focus:border-indigo-500 font-mono"
                     >
-                      <option value="112233445566778899">#generale</option>
-                      <option value="112233445566778800">#welcome-log</option>
-                      <option value="112233445566778805">#comandi-bot</option>
+                      <option value="">Seleziona un canale</option>
+                      {channels.map((channel: any) => (
+                        <option key={channel.id} value={channel.id}>
+                          #{channel.name}
+                        </option>
+                      ))}
                     </select>
                   </div>
 
@@ -1080,97 +1420,99 @@ export default function App() {
 
                 {/* VISUAL LAYERS EDITOR & PREVIEWER */}
                 <div className="grid grid-cols-1 xl:grid-cols-12 gap-8 pt-4 border-t border-neutral-800/80">
-                  
+
                   {/* Canvas interactive Area */}
                   <div className="xl:col-span-8 space-y-4">
                     <div className="flex justify-between items-center">
                       <span className="text-xs font-bold text-neutral-400 uppercase flex items-center gap-2">
                         <Layers className="w-4 h-4 text-indigo-400" />
-                        <span>Anteprima Grafica del Card (800x400)</span>
+                        <span>Anteprima Grafica del Card</span>
                       </span>
-                      <span className="text-xs text-neutral-500 font-mono">Trascina gli elementi per spostarli</span>
+                      <span className="text-xs text-neutral-500 font-mono">Trascina gli elementi o i maniglie per modificare</span>
                     </div>
 
                     <CardCanvasPreview
-                      cardConfig={configs[activeTab].card}
+                      cardConfig={getValidCard(activeTab)}
                       isLeave={activeTab === "leave"}
                       selectedLayerId={selectedLayerId}
                       onLayerSelect={setSelectedLayerId}
                       onLayerDrag={(id, pos) => handleLayerDrag(activeTab, id, pos)}
+                      onLayerResize={(id, data) => handleLayerResize(activeTab, id, data)}
                     />
 
-                    {/* Presets Background Chooser */}
+                    {/* Upload Background */}
                     <div className="bg-neutral-900/35 border border-neutral-800 p-4 rounded-xl space-y-3">
-                      <span className="text-xs font-bold text-neutral-400 uppercase block">Seleziona Sfondo Predefinito</span>
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                        {bgPresets.map((preset, index) => (
-                          <button
-                            key={index}
-                            onClick={() => {
-                              const bgLayer = configs[activeTab].card.layers.find(l => l.id === "bg");
-                              if (bgLayer) {
-                                updateActiveCardLayer(activeTab, { ...bgLayer, url: preset.url });
-                                saveSection(activeTab, configs[activeTab], `Sfondo ${preset.name} impostato!`);
-                              }
-                            }}
-                            className="text-left group relative h-16 rounded-lg overflow-hidden border border-neutral-800 hover:border-indigo-500 transition-all focus:outline-none"
-                          >
-                            <img src={preset.url} alt={preset.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform" />
-                            <div className="absolute inset-0 bg-black/60 group-hover:bg-black/40 transition-colors" />
-                            <span className="absolute bottom-1.5 left-2 text-[10px] font-bold text-white tracking-wide">{preset.name}</span>
-                          </button>
-                        ))}
-                      </div>
+                      <span className="text-xs font-bold text-neutral-400 uppercase block">Carica Immagine di Sfondo</span>
+                      <label className="flex items-center justify-center gap-2 w-full py-4 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 rounded-lg cursor-pointer transition-colors border border-neutral-700 hover:border-indigo-500">
+                        <Upload className="w-4 h-4" />
+                        <span className="text-sm font-medium">Seleziona da Galleria</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) => handleBackgroundUpload(e, activeTab)}
+                        />
+                      </label>
+                      <p className="text-xs text-neutral-500">
+                        Il canvas si adatterà automaticamente alle dimensioni dell'immagine caricata.
+                      </p>
                     </div>
                   </div>
 
                   {/* Layers control sidebars */}
                   <div className="xl:col-span-4 space-y-6">
-                    
+
                     {/* Layer List panel */}
                     <div className="bg-neutral-900/40 border border-neutral-800 p-4 rounded-xl space-y-4">
                       <div className="flex justify-between items-center">
                         <h4 className="text-xs font-bold text-neutral-400 uppercase">Oggetti Grafici</h4>
                         <span className="text-[10px] bg-neutral-800 px-2 py-0.5 rounded text-neutral-400 font-mono">Render list</span>
                       </div>
-                      
+
                       <div className="space-y-1.5 max-h-[160px] overflow-y-auto">
-                        {[...configs[activeTab].card.layers].reverse().map((layer, index) => {
-                          const originalIndex = configs[activeTab].card.layers.length - 1 - index;
+                        {[...getValidCard(activeTab).layers].reverse().map((layer, index) => {
+                          const originalIndex = getValidCard(activeTab).layers.length - 1 - index;
                           const isSelected = selectedLayerId === layer.id;
                           return (
                             <div
                               key={layer.id}
                               onClick={() => setSelectedLayerId(layer.id)}
-                              className={`flex items-center justify-between p-2 rounded-lg cursor-pointer transition-all ${
-                                isSelected 
-                                  ? "bg-indigo-600 text-white font-semibold shadow-md shadow-indigo-600/10" 
-                                  : "bg-[#2b2d31]/80 text-neutral-300 hover:bg-[#2b2d31]"
-                              }`}
+                              className={`flex items-center justify-between p-2 rounded-lg cursor-pointer transition-all ${isSelected
+                                ? "bg-indigo-600 text-white font-semibold shadow-md shadow-indigo-600/10"
+                                : "bg-[#2b2d31]/80 text-neutral-300 hover:bg-[#2b2d31]"
+                                }`}
                             >
                               <div className="flex items-center gap-2">
                                 {layer.visible ? <Eye className="w-3.5 h-3.5 opacity-80" /> : <EyeOff className="w-3.5 h-3.5 opacity-40" />}
                                 <span className="text-xs truncate font-mono">{layer.type} ({layer.id})</span>
                               </div>
-                              
-                              {layer.type !== "background" && (
-                                <div className="flex items-center gap-1 shrink-0">
-                                  <button
-                                    onClick={(e) => { e.stopPropagation(); moveLayerOrder(activeTab, originalIndex, "down"); }}
-                                    disabled={originalIndex === 0}
-                                    className="p-1 text-neutral-400 hover:text-white disabled:opacity-30 rounded hover:bg-black/10"
-                                  >
-                                    <ArrowDown className="w-3 h-3" />
-                                  </button>
-                                  <button
-                                    onClick={(e) => { e.stopPropagation(); moveLayerOrder(activeTab, originalIndex, "up"); }}
-                                    disabled={originalIndex === configs[activeTab].card.layers.length - 1}
-                                    className="p-1 text-neutral-400 hover:text-white disabled:opacity-30 rounded hover:bg-black/10"
-                                  >
-                                    <ArrowUp className="w-3 h-3" />
-                                  </button>
-                                </div>
-                              )}
+
+                              <div className="flex items-center gap-1 shrink-0">
+                                {layer.type !== "background" && (
+                                  <>
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); moveLayerOrder(activeTab, originalIndex, "down"); }}
+                                      disabled={originalIndex === 0}
+                                      className="p-1 text-neutral-400 hover:text-white disabled:opacity-30 rounded hover:bg-black/10"
+                                    >
+                                      <ArrowDown className="w-3 h-3" />
+                                    </button>
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); moveLayerOrder(activeTab, originalIndex, "up"); }}
+                                      disabled={originalIndex === getValidCard(activeTab).layers.length - 1}
+                                      className="p-1 text-neutral-400 hover:text-white disabled:opacity-30 rounded hover:bg-black/10"
+                                    >
+                                      <ArrowUp className="w-3 h-3" />
+                                    </button>
+                                  </>
+                                )}
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); deleteCardLayer(activeTab, layer.id); }}
+                                  className="p-1 text-rose-400 hover:text-rose-300 rounded hover:bg-rose-900/30"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </button>
+                              </div>
                             </div>
                           );
                         })}
@@ -1201,10 +1543,10 @@ export default function App() {
                     {/* Specific properties editor */}
                     <div className="bg-neutral-900/40 border border-neutral-800 p-4 rounded-xl space-y-4">
                       <h4 className="text-xs font-bold text-neutral-400 uppercase">Proprietà Layer Attivo</h4>
-                      
+
                       {selectedLayerId ? (
                         (() => {
-                          const layer = configs[activeTab].card.layers.find(l => l.id === selectedLayerId);
+                          const layer = getValidCard(activeTab).layers.find(l => l.id === selectedLayerId);
                           if (!layer) return null;
                           return (
                             <div className="space-y-4">
@@ -1359,7 +1701,7 @@ export default function App() {
           {activeTab === "autorole" && (
             <div className="space-y-8 animate-fade-in">
               <div className="bg-[#2b2d31] border border-neutral-800 rounded-xl p-6 shadow-lg space-y-6">
-                
+
                 {/* AutoRole Enabled card */}
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-4 bg-neutral-900/20 border border-neutral-800 rounded-lg">
                   <div>
@@ -1383,7 +1725,7 @@ export default function App() {
                 <div className="space-y-3">
                   <h4 className="text-xs font-bold text-neutral-400 uppercase">Ruoli del Server Discord</h4>
                   <p className="text-xs text-neutral-500">Seleziona i ruoli che verranno assegnati ai nuovi membri:</p>
-                  
+
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {[
                       { id: "112233445566778801", name: "Membro", color: "text-blue-400 bg-blue-950/20 border-blue-900/50" },
@@ -1402,11 +1744,10 @@ export default function App() {
                               : [...configs.autoRole.roleIds, role.id];
                             saveSection("autoRole", { ...configs.autoRole, roleIds: updatedList }, "Ruoli aggiornati!");
                           }}
-                          className={`flex items-center justify-between p-4 rounded-xl border cursor-pointer transition-all ${
-                            isSelected 
-                              ? `${role.color} ring-1 ring-indigo-500/20`
-                              : "bg-neutral-900/40 border-neutral-800/80 text-neutral-400 hover:bg-neutral-900"
-                          } ${!configs.autoRole.enabled ? "opacity-50 cursor-not-allowed" : ""}`}
+                          className={`flex items-center justify-between p-4 rounded-xl border cursor-pointer transition-all ${isSelected
+                            ? `${role.color} ring-1 ring-indigo-500/20`
+                            : "bg-neutral-900/40 border-neutral-800/80 text-neutral-400 hover:bg-neutral-900"
+                            } ${!configs.autoRole.enabled ? "opacity-50 cursor-not-allowed" : ""}`}
                         >
                           <div className="flex items-center gap-3">
                             <div className="w-2.5 h-2.5 rounded-full bg-current" />
@@ -1428,14 +1769,14 @@ export default function App() {
           {activeTab === "messages" && (
             <div className="space-y-8 animate-fade-in">
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-                
+
                 {/* Add/Create loop message */}
                 <div className="lg:col-span-5 bg-[#2b2d31] border border-neutral-800 p-6 rounded-xl shadow-lg space-y-6">
                   <h3 className="text-base font-bold text-white flex items-center gap-2">
                     <Clock className="w-5 h-5 text-indigo-400" />
                     <span>Nuovo Messaggio Automatico</span>
                   </h3>
-                  
+
                   <form onSubmit={handleAddScheduledMessage} className="space-y-4">
                     <div className="space-y-1.5">
                       <label className="text-xs font-bold text-neutral-400 uppercase">Canale Discord di Destinazione</label>
@@ -1455,7 +1796,7 @@ export default function App() {
                         <option value="112233445566778810">#log-messaggi</option>
                         <option value="custom">✍️ Inserisci ID Canale Personalizzato...</option>
                       </select>
-                      
+
                       {(schedChannel !== "112233445566778805" && schedChannel !== "112233445566778899" && schedChannel !== "112233445566778810") && (
                         <div className="pt-2 animate-fade-in">
                           <input
@@ -1483,7 +1824,7 @@ export default function App() {
                         <option value="weekly">Ogni settimana</option>
                         <option value="custom">⏱️ Intervallo Personalizzato...</option>
                       </select>
-                      
+
                       {schedInterval === "custom" && (
                         <div className="pt-2 animate-fade-in">
                           <input
@@ -1551,9 +1892,9 @@ export default function App() {
                               </span>
                               <span className="text-xs text-indigo-400 font-bold font-mono">
                                 {msg.channelId === "112233445566778805" ? "#comandi-bot" :
-                                 msg.channelId === "112233445566778899" ? "#generale" :
-                                 msg.channelId === "112233445566778810" ? "#log-messaggi" :
-                                 msg.channelId.startsWith("#") ? msg.channelId : `#canale-${msg.channelId}`}
+                                  msg.channelId === "112233445566778899" ? "#generale" :
+                                    msg.channelId === "112233445566778810" ? "#log-messaggi" :
+                                      msg.channelId.startsWith("#") ? msg.channelId : `#canale-${msg.channelId}`}
                               </span>
                             </div>
                             <button
@@ -1582,7 +1923,7 @@ export default function App() {
           {activeTab === "voice" && (
             <div className="space-y-8 animate-fade-in">
               <div className="bg-[#2b2d31] border border-neutral-800 rounded-xl p-6 shadow-lg space-y-6">
-                
+
                 {/* TTS enabled block */}
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-4 bg-neutral-900/20 border border-neutral-800 rounded-lg">
                   <div>
@@ -1604,7 +1945,7 @@ export default function App() {
 
                 {/* Configuration controls */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  
+
                   <div className="space-y-2">
                     <label className="text-xs font-bold text-neutral-400 uppercase">Canale Testuale (Sorgente)</label>
                     <select
@@ -1672,13 +2013,13 @@ export default function App() {
 
               </div>
             </div>
-             )}
- 
+          )}
+
           {/* TAB: LOGS */}
           {activeTab === "logs" && (
             <div className="space-y-8 animate-fade-in">
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-                
+
                 {/* Configuration Panel */}
                 <div className="lg:col-span-5 bg-[#2b2d31] border border-neutral-800 p-6 rounded-xl shadow-lg space-y-6">
                   <h3 className="text-base font-bold text-white flex items-center gap-2">
@@ -1722,7 +2063,7 @@ export default function App() {
                         <option value="112233445566778899">#generale</option>
                         <option value="custom">✍️ Inserisci ID Canale Personalizzato...</option>
                       </select>
-                      
+
                       {(configs.logsConfig.channelId !== "112233445566778810" && configs.logsConfig.channelId !== "112233445566778805" && configs.logsConfig.channelId !== "112233445566778899") && (
                         <div className="pt-2">
                           <input
@@ -1747,7 +2088,7 @@ export default function App() {
                     {/* Filter targets: App / Bots and Users */}
                     <div className="space-y-3">
                       <label className="text-xs font-bold text-neutral-400 uppercase">Tracciamento Filtri Target</label>
-                      
+
                       <div className="flex items-center justify-between p-3 bg-neutral-900/40 border border-neutral-800/80 rounded-lg">
                         <div className="flex flex-col">
                           <span className="text-xs font-semibold text-neutral-300">Intercetta Modifiche/Eliminazioni di Altri Bot</span>
@@ -1786,7 +2127,7 @@ export default function App() {
                   <div className="pt-4 border-t border-neutral-800 space-y-3">
                     <h4 className="text-xs font-bold text-neutral-400 uppercase">Simulatore Eventi Live</h4>
                     <p className="text-[10px] text-neutral-500">Simula l'intercettazione in background di un evento Discord per vedere l'embed generato in tempo reale.</p>
-                    
+
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <button
                         onClick={handleSimulateDeletedModified}
@@ -1832,16 +2173,15 @@ export default function App() {
                     <div className="space-y-4 max-h-[600px] overflow-y-auto pr-1">
                       {deletedModifiedLogs.map((log) => {
                         const isDeleted = log.type === "deleted";
-                        
+
                         // Parse simple text into words highlight:
                         // Deleted (Red) -> Red tags
                         // Modified -> OLD (Red/strikethrough) vs NEW (Green)
                         return (
                           <div
                             key={log.id}
-                            className={`p-4 bg-[#1e1f22] rounded-lg border-l-4 shadow-md ${
-                              isDeleted ? "border-l-[#ed4245]" : "border-l-[#57f287]"
-                            } space-y-3 hover:bg-[#1e1f22]/80 transition-colors`}
+                            className={`p-4 bg-[#1e1f22] rounded-lg border-l-4 shadow-md ${isDeleted ? "border-l-[#ed4245]" : "border-l-[#57f287]"
+                              } space-y-3 hover:bg-[#1e1f22]/80 transition-colors`}
                           >
                             {/* Author & Header */}
                             <div className="flex items-center justify-between">
@@ -1868,8 +2208,8 @@ export default function App() {
                               </div>
                               <span className="text-[10px] font-mono text-indigo-400 bg-neutral-950/40 border border-neutral-800 px-2.5 py-1 rounded">
                                 {log.channel === "112233445566778899" ? "#generale" :
-                                 log.channel === "112233445566778805" ? "#comandi-bot" :
-                                 log.channel === "112233445566778810" ? "#log-messaggi" : `#canale-${log.channel.slice(-4)}`}
+                                  log.channel === "112233445566778805" ? "#comandi-bot" :
+                                    log.channel === "112233445566778810" ? "#log-messaggi" : `#canale-${log.channel.slice(-4)}`}
                               </span>
                             </div>
 
@@ -1925,11 +2265,10 @@ export default function App() {
                                         return (
                                           <span
                                             key={i}
-                                            className={`inline-block px-1 py-0.5 rounded font-mono text-[11px] mr-1.5 my-0.5 ${
-                                              isChanged 
-                                                ? "bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/40 scale-105" 
-                                                : "bg-neutral-800 text-neutral-300 border border-neutral-700/60"
-                                            }`}
+                                            className={`inline-block px-1 py-0.5 rounded font-mono text-[11px] mr-1.5 my-0.5 ${isChanged
+                                              ? "bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/40 scale-105"
+                                              : "bg-neutral-800 text-neutral-300 border border-neutral-700/60"
+                                              }`}
                                           >
                                             {word}
                                           </span>
