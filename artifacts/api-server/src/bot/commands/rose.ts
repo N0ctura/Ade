@@ -20,7 +20,14 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = join(__filename, "..", "..");
 const LOGO_PATH = join(__dirname, "assets", "wovrose.png");
 
-function generateLobbyMessage(lobby: RoseLobby): { content: string; embeds: EmbedBuilder[]; components: ActionRowBuilder<ButtonBuilder>[]; files?: AttachmentBuilder[] } {
+// Aggiorniamo l'interfaccia RoseLobby per includere il messaggio
+declare module "../storage.js" {
+  interface RoseLobby {
+    customMessage?: string;
+  }
+}
+
+function generateLobbyMessage(lobby: RoseLobby): { content: string; embeds: EmbedBuilder[]; components: ActionRowBuilder<ButtonBuilder>[]; files?: AttachmentBuilder[]; allowedMentions?: { parse: string[] } } {
   const participantsList = lobby.participants.length > 0
     ? lobby.participants.map((p, i) => `${i + 1}. <@${p.userId}>`).join("\n")
     : "Nessun partecipante ancora";
@@ -44,19 +51,20 @@ function generateLobbyMessage(lobby: RoseLobby): { content: string; embeds: Embe
     )
     .setTimestamp(new Date(lobby.createdAt));
 
+  // Pulsanti più piccoli: solo emoji senza testo
   const joinButton = new ButtonBuilder()
     .setCustomId("rose_join")
-    .setLabel("🌹 Partecipa")
+    .setEmoji("🌹")
     .setStyle(ButtonStyle.Success);
 
   const reserveButton = new ButtonBuilder()
     .setCustomId("rose_reserve")
-    .setLabel("📋 Riserva")
+    .setEmoji("📋")
     .setStyle(ButtonStyle.Primary);
 
   const leaveButton = new ButtonBuilder()
     .setCustomId("rose_leave")
-    .setLabel("❌ Togli partecipazione")
+    .setEmoji("❌")
     .setStyle(ButtonStyle.Danger);
 
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(joinButton, reserveButton, leaveButton);
@@ -64,10 +72,11 @@ function generateLobbyMessage(lobby: RoseLobby): { content: string; embeds: Embe
   const logoAttachment = new AttachmentBuilder(LOGO_PATH, { name: "wovrose.png" });
 
   return {
-    content: "",
+    content: lobby.customMessage || "",
     embeds: [embed],
     components: [row],
     files: [logoAttachment],
+    allowedMentions: { parse: ["roles", "users"] }, // Permetti menzioni di ruoli e utenti
   };
 }
 
@@ -75,6 +84,9 @@ export const data = new SlashCommandBuilder()
   .setName("rose")
   .setDescription("Crea una nuova lobby rose")
   .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+  .addStringOption((opt) =>
+    opt.setName("messaggio").setDescription("Messaggio personalizzato da mostrare sopra la lista").setRequired(false)
+  )
   .addChannelOption((opt) =>
     opt.setName("canale").setDescription("Canale dove mandare il messaggio (solo la prima volta)").setRequired(false)
   );
@@ -89,6 +101,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
   }
 
   const config = loadConfig();
+  const customMessage = interaction.options.getString("messaggio");
   const channelOption = interaction.options.getChannel("canale");
 
   let targetChannel: TextChannel | undefined;
@@ -121,6 +134,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     channelId: targetChannel.id,
     messageId: "",
     title: "Lobby Rose",
+    customMessage: customMessage || undefined,
     participants: [],
     reserves: [],
     removedParticipants: [],

@@ -186,6 +186,7 @@ export interface RoseLobby {
   channelId: string;
   messageId: string;
   title: string;
+  customMessage?: string;
   participants: RoseLobbyParticipant[];
   reserves: RoseLobbyParticipant[];
   removedParticipants: RoseLobbyParticipant[];
