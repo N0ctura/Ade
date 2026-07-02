@@ -108,7 +108,7 @@ async function sendTempleSummaries(
   voterMap: Map<string, string>,
   pollChannelId: string,
   resultText: string,
-  winnerImageUrl?: string
+  winnerAttachment?: AttachmentBuilder
 ): Promise<void> {
   logger.info("Avvio riepilogo templi...");
 
@@ -134,16 +134,6 @@ async function sendTempleSummaries(
   }
 
   const roles = guild.roles.cache.filter((r) => r.name !== "@everyone");
-
-  let winnerAttachment: AttachmentBuilder | undefined;
-  if (winnerImageUrl) {
-    try {
-      const winnerImageBuffer = await getWinnerImageBuffer(winnerImageUrl);
-      winnerAttachment = new AttachmentBuilder(winnerImageBuffer, { name: "winner-quest.png" });
-    } catch (err) {
-      logger.warn({ err }, "Impossibile caricare l'immagine della missione vincitrice");
-    }
-  }
 
   let matchCount = 0;
   for (const [, role] of roles) {
@@ -311,7 +301,7 @@ export async function closePoll(client: Client): Promise<void> {
     }
 
     // Embed unificato (risultato + riepilogo voti) nei canali tempio
-    await sendTempleSummaries(guild, voterMap, poll.channelId, resultText, winnerImageUrl);
+    await sendTempleSummaries(guild, voterMap, poll.channelId, resultText, winnerAttachment);
   }
 
   config.activePoll = undefined;
