@@ -374,12 +374,11 @@ export default function App() {
   const [isRestarting, setIsRestarting] = useState(false);
   const [simulatedTime, setSimulatedTime] = useState<string>("");
 
-  // Preset Unsplash backgrounds for easy decoration
-  const bgPresets = [
-    { name: "Neon Synth", url: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800&auto=format&fit=crop&q=80" },
-    { name: "Minimal Dark", url: "https://images.unsplash.com/photo-1550684848-fac1c5b4e853?w=800&auto=format&fit=crop&q=80" },
-    { name: "Astral Nebula", url: "https://images.unsplash.com/photo-1506318137071-a8e063b4bec0?w=800&auto=format&fit=crop&q=80" },
-    { name: "Cosmic Glow", url: "https://images.unsplash.com/photo-1541701494587-cb58502866ab?w=800&auto=format&fit=crop&q=80" },
+  // Preset backgrounds for welcome and leave
+  const getBgPresets = (tab: "welcome" | "leave") => [
+    tab === "welcome"
+      ? { name: "Wov Benvenuto", url: "/wov-benvenuto.webp" }
+      : { name: "Wov Addio", url: "/Wovaddio.webp" },
   ];
 
   // Forms state for Scheduled Messages
@@ -490,9 +489,21 @@ export default function App() {
         };
       };
 
-      // Default card structure
-      const defaultWelcomeCard = { width: 800, height: 400, layers: [] };
-      const defaultLeaveCard = { width: 800, height: 400, layers: [] };
+      // Default card structure with backgrounds
+      const defaultWelcomeCard = {
+        width: 800,
+        height: 400,
+        layers: [
+          { id: "bg", type: "background", visible: true, x: 0, y: 0, width: 800, height: 400, url: "/wov-benvenuto.webp" },
+        ],
+      };
+      const defaultLeaveCard = {
+        width: 800,
+        height: 400,
+        layers: [
+          { id: "bg", type: "background", visible: true, x: 0, y: 0, width: 800, height: 400, url: "/Wovaddio.webp" },
+        ],
+      };
 
       // Update configs state
       setConfigs(prev => ({
@@ -1347,8 +1358,8 @@ export default function App() {
                     {/* Presets Background Chooser */}
                     <div className="bg-neutral-900/35 border border-neutral-800 p-4 rounded-xl space-y-3">
                       <span className="text-xs font-bold text-neutral-400 uppercase block">Seleziona Sfondo Predefinito</span>
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                        {bgPresets.map((preset, index) => (
+                      <div className="grid grid-cols-2 sm:grid-cols-1 gap-3">
+                        {getBgPresets(activeTab).map((preset, index) => (
                           <button
                             key={index}
                             onClick={() => {
