@@ -6,13 +6,21 @@ import {
   ButtonStyle,
   EmbedBuilder,
   PermissionFlagsBits,
+  ChannelType,
+  AttachmentBuilder,
   type TextChannel,
   type Message,
   type ButtonInteraction,
 } from "discord.js";
+import { join } from "node:path";
 import { loadConfig, saveConfig, type RoseLobby, type RoseLobbyParticipant } from "../storage.js";
+import { fileURLToPath } from "node:url";
 
-function generateLobbyMessage(lobby: RoseLobby): { content: string; embeds: EmbedBuilder[]; components: ActionRowBuilder<ButtonBuilder>[] } {
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = join(__filename, "..", "..");
+const LOGO_PATH = join(__dirname, "assets", "wovrose.png");
+
+function generateLobbyMessage(lobby: RoseLobby): { content: string; embeds: EmbedBuilder[]; components: ActionRowBuilder<ButtonBuilder>[]; files?: AttachmentBuilder[] } {
   const participantsList = lobby.participants.length > 0
     ? lobby.participants.map((p, i) => `${i + 1}. <@${p.userId}>`).join("\n")
     : "Nessun partecipante ancora";
@@ -27,7 +35,8 @@ function generateLobbyMessage(lobby: RoseLobby): { content: string; embeds: Embe
 
   const embed = new EmbedBuilder()
     .setColor(0xff69b4)
-    .setTitle(`🌹 ${lobby.title}`)
+    .setTitle("🌹 Lobby Rose")
+    .setThumbnail("attachment://wovrose.png")
     .addFields(
       { name: `✅ Partecipanti (${lobby.participants.length})`, value: participantsList, inline: false },
       { name: `📋 Riserve (${lobby.reserves.length})`, value: reservesList, inline: false },
@@ -52,10 +61,13 @@ function generateLobbyMessage(lobby: RoseLobby): { content: string; embeds: Embe
 
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(joinButton, reserveButton, leaveButton);
 
+  const logoAttachment = new AttachmentBuilder(LOGO_PATH, { name: "wovrose.png" });
+
   return {
     content: "",
     embeds: [embed],
     components: [row],
+    files: [logoAttachment],
   };
 }
 
@@ -63,9 +75,6 @@ export const data = new SlashCommandBuilder()
   .setName("rose")
   .setDescription("Crea una nuova lobby rose")
   .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
-  .addStringOption((opt) =>
-    opt.setName("titolo").setDescription("Titolo della lobby rose").setRequired(true)
-  )
   .addChannelOption((opt) =>
     opt.setName("canale").setDescription("Canale dove mandare il messaggio (solo la prima volta)").setRequired(false)
   );
@@ -80,14 +89,12 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
   }
 
   const config = loadConfig();
-  const title = interaction.options.getString("titolo", true);
   const channelOption = interaction.options.getChannel("canale");
 
   let targetChannel: TextChannel | undefined;
 
   if (channelOption) {
-    const channelType = channelOption.type;
-    if (channelType !== 0 && channelType !== 5) { // 0 = GuildText, 5 = GuildAnnouncement
+    if (channelOption.type !== ChannelType.GuildText && channelOption.type !== ChannelType.GuildAnnouncement) {
       await interaction.editReply({ content: "❌ Devi selezionare un canale testuale valido." });
       return;
     }
@@ -95,7 +102,10 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     config.roseLobbyChannelId = targetChannel.id;
     saveConfig(config);
   } else if (config.roseLobbyChannelId) {
-    targetChannel = guild.channels.cache.get(config.roseLobbyChannelId) as TextChannel | undefined;
+    const channelFromCache = guild.channels.cache.get(config.roseLobbyChannelId);
+    if (channelFromCache && (channelFromCache.type === ChannelType.GuildText || channelFromCache.type === ChannelType.GuildAnnouncement)) {
+      targetChannel = channelFromCache as TextChannel;
+    }
   }
 
   if (!targetChannel) {
@@ -110,7 +120,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     guildId: guild.id,
     channelId: targetChannel.id,
     messageId: "",
-    title,
+    title: "Lobby Rose",
     participants: [],
     reserves: [],
     removedParticipants: [],
@@ -195,5 +205,11 @@ export async function handleButtonInteraction(interaction: ButtonInteraction): P
   saveConfig(config);
 
   const messageData = generateLobbyMessage(lobby);
-  await interaction.message.edit(messageData);
+  await interaction.message.edit({
+    content: messageData.content,
+    embeds: messageData.embeds,
+    components: messageData.components,
+    files: messageData.files,
+    attachments: [],
+  });
 }
