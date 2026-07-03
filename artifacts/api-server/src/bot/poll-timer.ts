@@ -5,12 +5,10 @@ import {
   ActionRowBuilder,
   StringSelectMenuBuilder,
   EmbedBuilder,
-  AttachmentBuilder,
 } from "discord.js";
 import { logger } from "../lib/logger.js";
 import { loadConfig, saveConfig, getMessages, type ActivePoll } from "./storage.js";
 import { normalize } from "./normalize.js";
-import { loadImage } from "@napi-rs/canvas";
 
 let activeTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -103,7 +101,7 @@ async function sendTempleSummaries(
   voterMap: Map<string, string>,
   pollChannelId: string,
   resultText: string,
-  winnerImageBuffer?: Buffer
+  winnerImageUrl?: string
 ): Promise<void> {
   logger.info("Avvio riepilogo templi...");
 
@@ -161,10 +159,8 @@ async function sendTempleSummaries(
       .setTimestamp()
       .setFooter({ text: role.name });
 
-    let templeAttachment: AttachmentBuilder | undefined;
-    if (winnerImageBuffer) {
-      templeAttachment = new AttachmentBuilder(winnerImageBuffer, { name: "winner-quest.png" });
-      embed.setImage(`attachment://winner-quest.png`);
+    if (winnerImageUrl) {
+      embed.setImage(winnerImageUrl);
     }
 
     // Campo "Hanno votato"
@@ -198,10 +194,7 @@ async function sendTempleSummaries(
     }
 
     try {
-      await templeChannel.send({
-        embeds: [embed],
-        ...(templeAttachment ? { files: [templeAttachment] } : {}),
-      });
+      await templeChannel.send({ embeds: [embed] });
       logger.info({ role: role.name, channel: templeChannel.name, voted: voted.length, notVoted: notVoted.length }, "Riepilogo inviato");
     } catch (err) {
       logger.warn({ err, role: role.name, channel: templeChannel.name }, "Impossibile inviare riepilogo nel canale tempio — controlla i permessi del bot");
@@ -230,7 +223,7 @@ export async function closePoll(client: Client): Promise<void> {
   }
 
   let resultText: string;
-  let winnerImageBuffer: Buffer | undefined;
+  let winnerImageUrl: string | undefined;
   const wasRimescolo = winners.length === 1 && winners[0] === RIMESCOLO_IDX;
 
   logger.info({ winners, wasRimescolo, questImageUrls: poll.questImageUrls }, "Dettagli vincitore");
@@ -248,20 +241,8 @@ export async function closePoll(client: Client): Promise<void> {
     const winnerIdx = winners[0]!;
     const winnerLabel = poll.questLabels[winnerIdx] ?? `Missione ${winnerIdx + 1}`;
     resultText = applyTemplate(messages.missioneVinta, { missione: winnerLabel });
-    const winnerImageUrl = poll.questImageUrls?.[winnerIdx];
+    winnerImageUrl = poll.questImageUrls?.[winnerIdx];
     logger.info({ winnerIdx, winnerImageUrl }, "URL immagine vincitore");
-    if (winnerImageUrl) {
-      try {
-        logger.info("Caricamento immagine...");
-        const img = await loadImage(winnerImageUrl);
-        winnerImageBuffer = img.toBuffer();
-        logger.info({ size: winnerImageBuffer.length }, "Immagine caricata!");
-      } catch (err) {
-        logger.error({ err }, "Errore caricamento immagine");
-      }
-    } else {
-      logger.warn("Nessun URL immagine!");
-    }
   }
 
   for (const [, guild] of client.guilds.cache) {
@@ -281,16 +262,13 @@ export async function closePoll(client: Client): Promise<void> {
       .setColor(EMBED_COLOR)
       .setTimestamp();
 
-    let pollAttachment: AttachmentBuilder | undefined;
-    if (winnerImageBuffer) {
-      pollAttachment = new AttachmentBuilder(winnerImageBuffer, { name: "winner-quest.png" });
-      closeEmbed.setThumbnail(`attachment://winner-quest.png`);
+    if (winnerImageUrl) {
+      closeEmbed.setThumbnail(winnerImageUrl);
     }
 
     await pollChannel.send({
       content: roleMention || undefined,
       embeds: [closeEmbed],
-      ...(pollAttachment ? { files: [pollAttachment] } : {}),
       allowedMentions: { roles: roleId ? [roleId] : [] },
     });
 
@@ -308,7 +286,7 @@ export async function closePoll(client: Client): Promise<void> {
       await notifyChannel.send({ embeds: [notifyEmbed] }).catch(() => null);
     }
 
-    await sendTempleSummaries(guild, voterMap, poll.channelId, resultText, winnerImageBuffer);
+    await sendTempleSummaries(guild, voterMap, poll.channelId, resultText, winnerImageUrl);
   }
 
   config.activePoll = undefined;
