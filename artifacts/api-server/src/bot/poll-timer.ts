@@ -225,7 +225,7 @@ export async function closePoll(client: Client): Promise<void> {
   const poll = config.activePoll;
   if (!poll) { logger.warn("closePoll chiamato ma nessun sondaggio attivo"); return; }
 
-  logger.info({ channelId: poll.channelId }, "Chiusura sondaggio in corso...");
+  logger.info({ channelId: poll.channelId, poll: JSON.stringify(poll, null, 2) }, "Chiusura sondaggio in corso...");
 
   const { winners, maxVotes, voterMap } = countVotes(poll);
   const messages = getMessages(config);
@@ -238,6 +238,8 @@ export async function closePoll(client: Client): Promise<void> {
   let winnerImageUrl: string | undefined;
   let winnerImageBuffer: Buffer | undefined;
   const wasRimescolo = winners.length === 1 && winners[0] === RIMESCOLO_IDX;
+
+  logger.info({ winners, wasRimescolo, questImageUrls: poll.questImageUrls }, "Dettagli vincitore");
 
   if (winners.length === 0) {
     resultText = messages.nessunVoto;
@@ -253,12 +255,17 @@ export async function closePoll(client: Client): Promise<void> {
     const winnerLabel = poll.questLabels[winnerIdx] ?? `Missione ${winnerIdx + 1}`;
     resultText = applyTemplate(messages.missioneVinta, { missione: winnerLabel });
     winnerImageUrl = poll.questImageUrls?.[winnerIdx];
+    logger.info({ winnerIdx, winnerImageUrl }, "URL immagine vincitore");
     if (winnerImageUrl) {
       try {
+        logger.info("Inizio caricamento immagine vincitore...");
         winnerImageBuffer = await getWinnerImageBuffer(winnerImageUrl);
+        logger.info({ bufferSize: winnerImageBuffer.length }, "Immagine caricata con successo!");
       } catch (err) {
         logger.warn({ err }, "Impossibile caricare l'immagine della missione vincitrice");
       }
+    } else {
+      logger.warn("Nessun URL immagine disponibile per la missione vincitrice!");
     }
   }
 
