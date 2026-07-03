@@ -14,7 +14,7 @@ import {
   ComponentType,
   type TextChannel,
 } from "discord.js";
-import { logger } from "../lib/logger.js";
+import { logger } from "../../lib/logger.js";
 import { loadConfig, saveConfig, DEFAULT_MESSAGES, THRESHOLD_ROLE_ID_SET, type BotMessages } from "../storage.js";
 
 export const data = new SlashCommandBuilder()
