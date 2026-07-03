@@ -108,7 +108,7 @@ async function sendTempleSummaries(
   voterMap: Map<string, string>,
   pollChannelId: string,
   resultText: string,
-  winnerImageUrl?: string
+  winnerImageBuffer?: Buffer
 ): Promise<void> {
   logger.info("Avvio riepilogo templi...");
 
@@ -134,16 +134,6 @@ async function sendTempleSummaries(
   }
 
   const roles = guild.roles.cache.filter((r) => r.name !== "@everyone");
-
-  let winnerAttachment: AttachmentBuilder | undefined;
-  if (winnerImageUrl) {
-    try {
-      const winnerImageBuffer = await getWinnerImageBuffer(winnerImageUrl);
-      winnerAttachment = new AttachmentBuilder(winnerImageBuffer, { name: "winner-quest.png" });
-    } catch (err) {
-      logger.warn({ err }, "Impossibile caricare l'immagine della missione vincitrice");
-    }
-  }
 
   let matchCount = 0;
   for (const [, role] of roles) {
@@ -176,7 +166,11 @@ async function sendTempleSummaries(
       .setTimestamp()
       .setFooter({ text: role.name });
 
-    if (winnerAttachment) embed.setImage(`attachment://winner-quest.png`);
+    let templeAttachment: AttachmentBuilder | undefined;
+    if (winnerImageBuffer) {
+      templeAttachment = new AttachmentBuilder(winnerImageBuffer, { name: "winner-quest.png" });
+      embed.setImage(`attachment://winner-quest.png`);
+    }
 
     // Campo "Hanno votato"
     const votedChunks = splitFieldValue(voted.map((l) => `• ${l}`));
@@ -211,7 +205,7 @@ async function sendTempleSummaries(
     try {
       await templeChannel.send({
         embeds: [embed],
-        ...(winnerAttachment ? { files: [winnerAttachment] } : {}),
+        ...(templeAttachment ? { files: [templeAttachment] } : {}),
       });
       logger.info({ role: role.name, channel: templeChannel.name, voted: voted.length, notVoted: notVoted.length }, "Riepilogo inviato");
     } catch (err) {
@@ -242,11 +236,12 @@ export async function closePoll(client: Client): Promise<void> {
 
   let resultText: string;
   let winnerImageUrl: string | undefined;
-  let winnerAttachment: AttachmentBuilder | undefined;
+  let winnerImageBuffer: Buffer | undefined;
+  const wasRimescolo = winners.length === 1 && winners[0] === RIMESCOLO_IDX;
 
   if (winners.length === 0) {
     resultText = messages.nessunVoto;
-  } else if (winners.length === 1 && winners[0] === RIMESCOLO_IDX) {
+  } else if (wasRimescolo) {
     resultText = `🔀 **Il clan ha votato per il Rimescolo!** Ricordati di rimescolare le missioni manualmente nel gioco, poi pubblica un nuovo sondaggio.`;
   } else if (winners.length > 1) {
     const tiedLabels = winners
@@ -260,10 +255,9 @@ export async function closePoll(client: Client): Promise<void> {
     winnerImageUrl = poll.questImageUrls?.[winnerIdx];
     if (winnerImageUrl) {
       try {
-        const winnerImageBuffer = await getWinnerImageBuffer(winnerImageUrl);
-        winnerAttachment = new AttachmentBuilder(winnerImageBuffer, { name: "winner-quest.png" });
+        winnerImageBuffer = await getWinnerImageBuffer(winnerImageUrl);
       } catch (err) {
-        logger.warn({ err }, "Impossibile caricare l'immagine della missione vincitrice per il canale sondaggi");
+        logger.warn({ err }, "Impossibile caricare l'immagine della missione vincitrice");
       }
     }
   }
@@ -286,12 +280,17 @@ export async function closePoll(client: Client): Promise<void> {
       .setColor(EMBED_COLOR)
       .setTimestamp();
 
-    if (winnerAttachment) closeEmbed.setImage(`attachment://winner-quest.png`);
+    // Crea attachment per canale sondaggi e usa thumbnail (immagine piccola)
+    let pollAttachment: AttachmentBuilder | undefined;
+    if (winnerImageBuffer) {
+      pollAttachment = new AttachmentBuilder(winnerImageBuffer, { name: "winner-quest.png" });
+      closeEmbed.setThumbnail(`attachment://winner-quest.png`);
+    }
 
     await pollChannel.send({
       content: roleMention || undefined,
       embeds: [closeEmbed],
-      ...(winnerAttachment ? { files: [winnerAttachment] } : {}),
+      ...(pollAttachment ? { files: [pollAttachment] } : {}),
       allowedMentions: { roles: roleId ? [roleId] : [] },
     });
 
@@ -311,11 +310,10 @@ export async function closePoll(client: Client): Promise<void> {
     }
 
     // Embed unificato (risultato + riepilogo voti) nei canali tempio
-    await sendTempleSummaries(guild, voterMap, poll.channelId, resultText, winnerImageUrl);
+    await sendTempleSummaries(guild, voterMap, poll.channelId, resultText, winnerImageBuffer);
   }
 
   config.activePoll = undefined;
-  const wasRimescolo = winners.length === 1 && winners[0] === RIMESCOLO_IDX;
   config.lastPollWasShuffled = wasRimescolo;
   saveConfig(config);
   logger.info({ winners, maxVotes, wasRimescolo }, "Sondaggio chiuso");
