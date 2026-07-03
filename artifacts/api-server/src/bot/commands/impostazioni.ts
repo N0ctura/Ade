@@ -14,7 +14,7 @@ import {
   ComponentType,
   type TextChannel,
 } from "discord.js";
-import { logger } from "../../lib/logger.js";
+import { logger } from "../../lib/logger";
 import { loadConfig, saveConfig, DEFAULT_MESSAGES, THRESHOLD_ROLE_ID_SET, type BotMessages } from "../storage.js";
 
 export const data = new SlashCommandBuilder()
@@ -437,3 +437,4 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     } catch { /* nothing we can do */ }
   }
 }
+
