@@ -99,7 +99,9 @@ function splitFieldValue(lines: string[], maxLen = EMBED_FIELD_MAX): string[] {
 }
 
 async function getWinnerImageBuffer(imageUrl: string): Promise<Buffer> {
-  const img = await loadImage(imageUrl);
+  const response = await fetch(imageUrl);
+  const buffer = Buffer.from(await response.arrayBuffer());
+  const img = await loadImage(buffer);
   return img.toBuffer();
 }
 
