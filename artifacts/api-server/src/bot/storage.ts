@@ -198,6 +198,8 @@ export interface BotConfig {
   notifyChannelNames: string[];
   pollDurationHours?: number;
   pingRoleName?: string;
+  pilgrimRoleId?: string;
+  pilgrimRoleName?: string;
   clanId?: string;
   activePoll?: ActivePoll;
   messages?: Partial<BotMessages>;

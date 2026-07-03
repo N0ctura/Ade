@@ -19,7 +19,7 @@ import { loadConfig, saveConfig, DEFAULT_MESSAGES, THRESHOLD_ROLE_ID_SET, type B
 
 export const data = new SlashCommandBuilder()
   .setName("impostazioni")
-  .setDescription("Configura il bot: canale sondaggi, notifiche, durata, ruolo e messaggi")
+  .setDescription("Configura il bot: canale sondaggi, notifiche, durata, ruoli e messaggi")
   .setDefaultMemberPermissions(PermissionFlagsBits.Administrator);
 
 const DURATION_OPTIONS = [
@@ -91,6 +91,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
         `🔔 **Canali notifica:** ${config.notifyChannelNames.length > 0 ? config.notifyChannelNames.map((n) => `#${n}`).join(", ") : "❌ nessuno"}`,
         `⏱️ **Durata sondaggio:** ${durLabel}`,
         `🔔 **Ruolo da pingare:** ${config.pingRoleName ? `@${config.pingRoleName}` : "❌ non impostato"}`,
+        `🚶 **Ruolo pellegrini:** ${config.pilgrimRoleName ? `@${config.pilgrimRoleName}` : "❌ non impostato"}`,
       ].join("\n");
     };
 
@@ -117,6 +118,15 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     const roleOptions = guildRoles.map((r) =>
       new StringSelectMenuOptionBuilder().setLabel(`@${r.name}`).setValue(r.name)
     );
+    const pilgrimRoleOptions = [
+      new StringSelectMenuOptionBuilder()
+        .setLabel("Nessun ruolo pellegrini")
+        .setValue("none")
+        .setDescription("Non impostare alcun ruolo ospite"),
+      ...guildRoles.slice(0, 24).map((r) =>
+        new StringSelectMenuOptionBuilder().setLabel(`@${r.name}`).setValue(r.id)
+      ),
+    ];
 
     // ── Row builders ───────────────────────────────────────
     const pollSelectRow = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
@@ -155,7 +165,14 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
       )
       : null;
 
-    // ── Step 5: message buttons ────────────────────────────
+    const pilgrimRoleSelectRow = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+      new StringSelectMenuBuilder()
+        .setCustomId("select_pilgrim_role")
+        .setPlaceholder("Scegli il ruolo usato per i pellegrini…")
+        .addOptions(pilgrimRoleOptions)
+    );
+
+    // ── Step 6: message buttons ────────────────────────────
     const buildMessageButtons = () =>
       new ActionRowBuilder<ButtonBuilder>().addComponents(
         ...MESSAGE_KEYS.map((m) =>
@@ -170,13 +187,13 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
           .setStyle(ButtonStyle.Success)
       );
 
-    const buildStep5Embed = () => {
+    const buildStep6Embed = () => {
       const msgs = { ...DEFAULT_MESSAGES, ...config.messages };
       const lines = MESSAGE_KEYS.map(
         (m) => `${m.emoji} **${m.label}:**\n> ${msgs[m.key].slice(0, 100)}${msgs[m.key].length > 100 ? "…" : ""}`
       );
       return new EmbedBuilder()
-        .setTitle("⚙️ Impostazioni — Passo 5/5: Messaggi")
+        .setTitle("⚙️ Impostazioni — Passo 6/6: Messaggi")
         .setDescription(
           "Personalizza i messaggi che il bot invia.\n\n" +
           lines.join("\n\n") +
@@ -190,7 +207,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
       .setTitle("⚙️ Impostazioni Bot Wolvesville")
       .setDescription(
         `**Configurazione attuale:**\n${showCurrentConfig()}\n\n` +
-        "**Passo 1/5:** Scegli il canale dove appariranno i sondaggi.\n\n" +
+        "**Passo 1/6:** Scegli il canale dove appariranno i sondaggi.\n\n" +
         "⏳ Hai 2 minuti per completare ogni passaggio."
       )
       .setColor(0x8b0000)
@@ -213,7 +230,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     });
 
     collector.on("collect", async (i) => {
-      // ── Steps 1-4: StringSelect ──────────────────────────
+      // ── Steps 1-5: StringSelect ──────────────────────────
       if (i.isStringSelectMenu()) {
         // Step 1 — Poll channel
         if (i.customId === "select_poll_channel" && step === 1) {
@@ -222,7 +239,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
           await i.update({
             embeds: [
               new EmbedBuilder()
-                .setTitle("⚙️ Impostazioni — Passo 2/5")
+                .setTitle("⚙️ Impostazioni — Passo 2/6")
                 .setDescription(
                   `✅ Canale sondaggi: **#${config.pollChannelName}**\n\n` +
                   "Scegli i canali dove mandare la notifica quando escono nuovi sondaggi.\n" +
@@ -240,7 +257,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
           await i.update({
             embeds: [
               new EmbedBuilder()
-                .setTitle("⚙️ Impostazioni — Passo 3/5")
+                .setTitle("⚙️ Impostazioni — Passo 3/6")
                 .setDescription(
                   `✅ Canali notifica: **${config.notifyChannelNames.map((n) => `#${n}`).join(", ")}**\n\n` +
                   "Per quanto tempo deve restare aperto il sondaggio prima di chiudersi automaticamente?\n" +
@@ -258,8 +275,18 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 
           if (!roleSelectRow) {
             step = 5;
-            saveConfig(config);
-            await i.update({ embeds: [buildStep5Embed()], components: [buildMessageButtons()] });
+            await i.update({
+              embeds: [
+                new EmbedBuilder()
+                  .setTitle("⚙️ Impostazioni — Passo 5/6")
+                  .setDescription(
+                    "Quale ruolo identifica i pellegrini/ospiti nel server?\n" +
+                    "Scegli **Nessun ruolo pellegrini** se vuoi lasciarlo non configurato."
+                  )
+                  .setColor(0x8b0000),
+              ],
+              components: [pilgrimRoleSelectRow],
+            });
             return;
           }
 
@@ -267,7 +294,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
           await i.update({
             embeds: [
               new EmbedBuilder()
-                .setTitle("⚙️ Impostazioni — Passo 4/5")
+                .setTitle("⚙️ Impostazioni — Passo 4/6")
                 .setDescription(
                   `✅ Durata sondaggio: **${durLabel}**\n\n` +
                   "Quale ruolo deve essere menzionato quando i sondaggi si chiudono?\n" +
@@ -282,12 +309,37 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
         } else if (i.customId === "select_role" && step === 4) {
           config.pingRoleName = i.values[0];
           step = 5;
+          await i.update({
+            embeds: [
+              new EmbedBuilder()
+                .setTitle("⚙️ Impostazioni — Passo 5/6")
+                .setDescription(
+                  `✅ Ruolo da pingare: **@${config.pingRoleName}**\n\n` +
+                  "Quale ruolo identifica i pellegrini/ospiti nel server?\n" +
+                  "Scegli **Nessun ruolo pellegrini** se vuoi lasciarlo non configurato."
+                )
+                .setColor(0x8b0000),
+            ],
+            components: [pilgrimRoleSelectRow],
+          });
+        } else if (i.customId === "select_pilgrim_role" && step === 5) {
+          const selectedRoleId = i.values[0];
+          if (selectedRoleId === "none") {
+            delete config.pilgrimRoleId;
+            delete config.pilgrimRoleName;
+          } else {
+            const selectedRole = guild.roles.cache.get(selectedRoleId);
+            config.pilgrimRoleId = selectedRoleId;
+            config.pilgrimRoleName = selectedRole?.name;
+          }
+
+          step = 6;
           saveConfig(config);
-          await i.update({ embeds: [buildStep5Embed()], components: [buildMessageButtons()] });
+          await i.update({ embeds: [buildStep6Embed()], components: [buildMessageButtons()] });
         }
 
-        // ── Step 5: Buttons ──────────────────────────────────
-      } else if (i.isButton() && step === 5) {
+        // ── Step 6: Buttons ──────────────────────────────────
+      } else if (i.isButton() && step === 6) {
         if (i.customId === "msg_done") {
           collector.stop("done");
           await i.update({
@@ -342,10 +394,10 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 
           // update() risponde al modal E aggiorna il messaggio originale in un solo passo
           // @ts-ignore
-          await submitted.update({ embeds: [buildStep5Embed()], components: [buildMessageButtons()] });
+          await submitted.update({ embeds: [buildStep6Embed()], components: [buildMessageButtons()] });
         } catch {
-          // Modal scaduto — ripristina il passo 5 senza toccare il modal
-          try { await interaction.editReply({ embeds: [buildStep5Embed()], components: [buildMessageButtons()] }); } catch { /* ignorato */ }
+          // Modal scaduto — ripristina il passo 6 senza toccare il modal
+          try { await interaction.editReply({ embeds: [buildStep6Embed()], components: [buildMessageButtons()] }); } catch { /* ignorato */ }
         }
       }
     });
