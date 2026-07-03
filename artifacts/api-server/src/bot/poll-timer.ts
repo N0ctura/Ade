@@ -98,11 +98,6 @@ function splitFieldValue(lines: string[], maxLen = EMBED_FIELD_MAX): string[] {
   return chunks.length > 0 ? chunks : ["—"];
 }
 
-async function getWinnerImageBuffer(imageUrl: string): Promise<Buffer> {
-  const img = await loadImage(imageUrl);
-  return img.toBuffer();
-}
-
 async function sendTempleSummaries(
   guild: Guild,
   voterMap: Map<string, string>,
@@ -225,7 +220,7 @@ export async function closePoll(client: Client): Promise<void> {
   const poll = config.activePoll;
   if (!poll) { logger.warn("closePoll chiamato ma nessun sondaggio attivo"); return; }
 
-  logger.info({ channelId: poll.channelId, poll: JSON.stringify(poll, null, 2) }, "Chiusura sondaggio in corso...");
+  logger.info({ poll }, "Chiusura sondaggio in corso...");
 
   const { winners, maxVotes, voterMap } = countVotes(poll);
   const messages = getMessages(config);
@@ -235,7 +230,6 @@ export async function closePoll(client: Client): Promise<void> {
   }
 
   let resultText: string;
-  let winnerImageUrl: string | undefined;
   let winnerImageBuffer: Buffer | undefined;
   const wasRimescolo = winners.length === 1 && winners[0] === RIMESCOLO_IDX;
 
@@ -254,18 +248,19 @@ export async function closePoll(client: Client): Promise<void> {
     const winnerIdx = winners[0]!;
     const winnerLabel = poll.questLabels[winnerIdx] ?? `Missione ${winnerIdx + 1}`;
     resultText = applyTemplate(messages.missioneVinta, { missione: winnerLabel });
-    winnerImageUrl = poll.questImageUrls?.[winnerIdx];
+    const winnerImageUrl = poll.questImageUrls?.[winnerIdx];
     logger.info({ winnerIdx, winnerImageUrl }, "URL immagine vincitore");
     if (winnerImageUrl) {
       try {
-        logger.info("Inizio caricamento immagine vincitore...");
-        winnerImageBuffer = await getWinnerImageBuffer(winnerImageUrl);
-        logger.info({ bufferSize: winnerImageBuffer.length }, "Immagine caricata con successo!");
+        logger.info("Caricamento immagine...");
+        const img = await loadImage(winnerImageUrl);
+        winnerImageBuffer = img.toBuffer();
+        logger.info({ size: winnerImageBuffer.length }, "Immagine caricata!");
       } catch (err) {
-        logger.warn({ err }, "Impossibile caricare l'immagine della missione vincitrice");
+        logger.error({ err }, "Errore caricamento immagine");
       }
     } else {
-      logger.warn("Nessun URL immagine disponibile per la missione vincitrice!");
+      logger.warn("Nessun URL immagine!");
     }
   }
 
@@ -273,7 +268,6 @@ export async function closePoll(client: Client): Promise<void> {
     const pollChannel = guild.channels.cache.get(poll.channelId) as TextChannel | undefined;
     if (!pollChannel) continue;
 
-    // Embed di chiusura nel canale sondaggi (con eventuale ping ruolo)
     let roleMention = "";
     let roleId = "";
     if (config.pingRoleName) {
@@ -287,7 +281,6 @@ export async function closePoll(client: Client): Promise<void> {
       .setColor(EMBED_COLOR)
       .setTimestamp();
 
-    // Crea attachment per canale sondaggi e usa thumbnail (immagine piccola)
     let pollAttachment: AttachmentBuilder | undefined;
     if (winnerImageBuffer) {
       pollAttachment = new AttachmentBuilder(winnerImageBuffer, { name: "winner-quest.png" });
@@ -301,7 +294,6 @@ export async function closePoll(client: Client): Promise<void> {
       allowedMentions: { roles: roleId ? [roleId] : [] },
     });
 
-    // Notifica negli altri canali di notifica (esclusi templi — quelli ricevono l'embed unificato)
     for (const channelName of config.notifyChannelNames) {
       if (channelName === config.pollChannelName) continue;
       const notifyChannel = guild.channels.cache.find(
@@ -316,7 +308,6 @@ export async function closePoll(client: Client): Promise<void> {
       await notifyChannel.send({ embeds: [notifyEmbed] }).catch(() => null);
     }
 
-    // Embed unificato (risultato + riepilogo voti) nei canali tempio
     await sendTempleSummaries(guild, voterMap, poll.channelId, resultText, winnerImageBuffer);
   }
 
