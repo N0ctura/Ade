@@ -110,7 +110,7 @@ async function sendTempleSummaries(
   voterMap: Map<string, string>,
   pollChannelId: string,
   resultText: string,
-  winnerImageBuffer?: Buffer
+  winnerImageUrl?: string
 ): Promise<void> {
   logger.info("Avvio riepilogo templi...");
 
@@ -168,7 +168,16 @@ async function sendTempleSummaries(
       .setTimestamp()
       .setFooter({ text: role.name });
 
-    if (winnerImageBuffer) embed.setImage(`attachment://winner-quest.png`);
+    let templeAttachment: AttachmentBuilder | undefined;
+    if (winnerImageUrl) {
+      try {
+        const buffer = await getWinnerImageBuffer(winnerImageUrl);
+        templeAttachment = new AttachmentBuilder(buffer, { name: "winner-quest.png" });
+        embed.setImage(`attachment://winner-quest.png`);
+      } catch (err) {
+        logger.warn({ err }, "Impossibile caricare l'immagine per il canale tempio");
+      }
+    }
 
     // Campo "Hanno votato"
     const votedChunks = splitFieldValue(voted.map((l) => `• ${l}`));
@@ -201,11 +210,6 @@ async function sendTempleSummaries(
     }
 
     try {
-      // Crea un nuovo AttachmentBuilder ogni volta
-      const templeAttachment = winnerImageBuffer 
-        ? new AttachmentBuilder(winnerImageBuffer, { name: "winner-quest.png" }) 
-        : undefined;
-      
       await templeChannel.send({
         embeds: [embed],
         ...(templeAttachment ? { files: [templeAttachment] } : {}),
@@ -260,7 +264,7 @@ export async function closePoll(client: Client): Promise<void> {
       try {
         winnerImageBuffer = await getWinnerImageBuffer(winnerImageUrl);
       } catch (err) {
-        logger.warn({ err }, "Impossibile caricare l'immagine della missione vincitrice");
+        logger.warn({ err }, "Impossibile caricare l'immagine della missione vincitrice per il canale sondaggi");
       }
     }
   }
@@ -284,8 +288,8 @@ export async function closePoll(client: Client): Promise<void> {
       .setTimestamp();
 
     // Crea attachment per canale sondaggi
-    const pollAttachment = winnerImageBuffer 
-      ? new AttachmentBuilder(winnerImageBuffer, { name: "winner-quest.png" }) 
+    const pollAttachment = winnerImageBuffer
+      ? new AttachmentBuilder(winnerImageBuffer, { name: "winner-quest.png" })
       : undefined;
 
     if (pollAttachment) closeEmbed.setImage(`attachment://winner-quest.png`);
@@ -313,7 +317,7 @@ export async function closePoll(client: Client): Promise<void> {
     }
 
     // Embed unificato (risultato + riepilogo voti) nei canali tempio
-    await sendTempleSummaries(guild, voterMap, poll.channelId, resultText, winnerImageBuffer);
+    await sendTempleSummaries(guild, voterMap, poll.channelId, resultText, winnerImageUrl);
   }
 
   config.activePoll = undefined;
