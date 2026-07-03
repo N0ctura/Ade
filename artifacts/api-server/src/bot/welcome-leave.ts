@@ -3,6 +3,12 @@ import { GuildMember, AttachmentBuilder } from "discord.js";
 import { logger } from "../lib/logger.js";
 import { loadConfig, CardConfig } from "./storage.js";
 import { createCanvas, loadImage } from "@napi-rs/canvas";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 export function replaceVariables(text: string, member: GuildMember): string {
   return text
@@ -110,9 +116,40 @@ async function renderCard(
       case "image":
         if (layer.url) {
           try {
-            const bgResponse = await fetch(layer.url);
-            const bgBuffer = Buffer.from(await bgResponse.arrayBuffer());
-            const img = await loadImage(bgBuffer);
+            let img;
+
+            // Case 1: Base64 data URL
+            if (layer.url.startsWith("data:")) {
+              const base64Data = layer.url.split(",")[1];
+              const buffer = Buffer.from(base64Data, "base64");
+              img = await loadImage(buffer);
+            }
+            // Case 2: Local relative URL (preset backgrounds)
+            else if (layer.url.startsWith("/")) {
+              const filename = layer.url.substring(1);
+              const localPath = path.resolve(__dirname, "../assets", filename);
+              if (fs.existsSync(localPath)) {
+                const buffer = fs.readFileSync(localPath);
+                img = await loadImage(buffer);
+              } else {
+                // Try alternative filename (with space instead of hyphen)
+                const altFilename = filename.replace("-", " ");
+                const altLocalPath = path.resolve(__dirname, "../assets", altFilename);
+                if (fs.existsSync(altLocalPath)) {
+                  const buffer = fs.readFileSync(altLocalPath);
+                  img = await loadImage(buffer);
+                } else {
+                  throw new Error("Local file not found");
+                }
+              }
+            }
+            // Case 3: External URL
+            else {
+              const bgResponse = await fetch(layer.url);
+              const bgBuffer = Buffer.from(await bgResponse.arrayBuffer());
+              img = await loadImage(bgBuffer);
+            }
+
             ctx.drawImage(img, layer.x, layer.y, layer.width, layer.height);
 
             if (layer.grayscale || isLeave) {
@@ -127,6 +164,7 @@ async function renderCard(
               ctx.putImageData(imageData, layer.x, layer.y);
             }
           } catch (err) {
+            logger.error({ err, url: layer.url }, "Failed to load background image");
             // Fallback gradient
             const gradient = ctx.createLinearGradient(layer.x, layer.y, layer.x + layer.width, layer.y + layer.height);
             if (isLeave) {
