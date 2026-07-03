@@ -96,12 +96,15 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 
     const channelOptions = textChannels
       .slice(0, 25)
-      .map((c) =>
-        new StringSelectMenuOptionBuilder()
+      .map((c) => {
+        const channelTopic = c.topic?.trim();
+        const description = channelTopic ? channelTopic.slice(0, 50) : "Canale testuale";
+
+        return new StringSelectMenuOptionBuilder()
           .setLabel(`#${c.name}`)
           .setValue(c.name)
-          .setDescription(c.topic?.slice(0, 50) ?? "Canale testuale")
-      );
+          .setDescription(description);
+      });
 
     // Escludi @everyone, bot-managed e ruoli soglia XP (sono 36 e riempirebbero tutti gli slot).
     // Ordina per posizione crescente: i ruoli più bassi (es. @tutti, @membri) vengono prima,
