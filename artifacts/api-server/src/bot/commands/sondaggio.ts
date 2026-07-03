@@ -18,7 +18,7 @@ import { normalize } from "../normalize.js";
 
 export const data = new SlashCommandBuilder()
   .setName("sondaggio")
-  .setDescription("Crea un sondaggio con le missioni disponibili del clan da Wolvesville")
+  .setDescription("Crea un sondaggio con le missioni disponibili del clan")
   .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
   .addStringOption((opt) =>
     opt.setName("data_fine").setDescription("Data fine sondaggio (es: 30 Giugno 2025) — ignorato se il timer automatico è attivo").setRequired(false)
@@ -30,14 +30,15 @@ const ASSETS_DIR = join(__dirname, "assets");
 
 function questLabel(quest: WvQuest, globalIdx: number): string {
   const emoji = VOTE_EMOJIS[globalIdx] ?? `${globalIdx + 1}`;
-  return `${emoji} — ${quest.purchasableWithGems ? "Gemme" : "Monete"}`;
+  return `${emoji} — ${quest.purchasableWithGems ? "Gem Quest" : "Gold Quest"}`;
 }
 
 export async function publishPoll(
   pollChannel: TextChannel,
   quests: WvQuest[],
   dataFine: string,
-  closesAt?: Date
+  closesAt?: Date,
+  hideRimescolo?: boolean
 ): Promise<{ introMessageId: string; messageIds: string[]; questLabels: string[]; questImageUrls: string[] }> {
   // Sort: gems first, then coins
   const sorted = [
@@ -62,22 +63,26 @@ export async function publishPoll(
     .map((q, i) => `${q.purchasableWithGems ? "💎" : "🪙"} ${VOTE_EMOJIS[i] ?? i + 1}`)
     .join("  ·  ");
 
-  // Select menu: mission options + Rimescolo as last choice
+  // Select menu: mission options + Rimescolo as last choice (if not hidden)
   const missionOptions = sorted.map((quest, idx) =>
     new StringSelectMenuOptionBuilder()
       .setLabel(`${quest.purchasableWithGems ? "Gemme" : "Monete"} — Missione ${idx + 1}`)
       .setEmoji(VOTE_EMOJIS[idx] ?? `${idx + 1}`)
       .setValue(String(idx))
   );
-  const rimescoloOption = new StringSelectMenuOptionBuilder()
-    .setLabel("Rimescolo — voglio missioni diverse")
-    .setEmoji("🔀")
-    .setValue("rimescolo");
+  const allOptions = [...missionOptions];
+  if (!hideRimescolo) {
+    const rimescoloOption = new StringSelectMenuOptionBuilder()
+      .setLabel("Rimescolo — voglio missioni diverse")
+      .setEmoji("🔀")
+      .setValue("rimescolo");
+    allOptions.push(rimescoloOption);
+  }
 
   const selectMenu = new StringSelectMenuBuilder()
     .setCustomId("vote_mission")
     .setPlaceholder("Seleziona la missione che vuoi fare...")
-    .addOptions([...missionOptions, rimescoloOption]);
+    .addOptions(allOptions);
 
   const selectRow = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(selectMenu);
 
@@ -176,11 +181,17 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     : undefined;
 
   const dataFine = interaction.options.getString("data_fine") ?? "";
+  const hideRimescolo = config.lastPollWasShuffled ?? false;
+
+  // Resetta il flag prima di salvare il nuovo sondaggio
+  config.lastPollWasShuffled = false;
+
   const { introMessageId, messageIds, questLabels, questImageUrls } = await publishPoll(
     pollChannel,
     quests,
     dataFine,
-    closesAtDate
+    closesAtDate,
+    hideRimescolo
   );
 
   const closesAt = closesAtDate?.toISOString();

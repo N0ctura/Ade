@@ -27,17 +27,28 @@ declare module "../storage.js" {
   }
 }
 
+function formatItalianDate(dateStr: string): string {
+  const date = new Date(dateStr);
+  return date.toLocaleString("it-IT", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function generateLobbyMessage(lobby: RoseLobby): { content: string; embeds: EmbedBuilder[]; components: ActionRowBuilder<ButtonBuilder>[]; files?: AttachmentBuilder[]; allowedMentions?: { parse: string[] } } {
   const participantsList = lobby.participants.length > 0
-    ? lobby.participants.map((p, i) => `${i + 1}. <@${p.userId}>`).join("\n")
+    ? lobby.participants.map((p, i) => `${i + 1}. <@${p.userId}> - ${formatItalianDate(p.joinedAt)}`).join("\n")
     : "Nessun partecipante ancora";
 
   const reservesList = lobby.reserves.length > 0
-    ? lobby.reserves.map((p, i) => `${i + 1}. <@${p.userId}>`).join("\n")
+    ? lobby.reserves.map((p, i) => `${i + 1}. <@${p.userId}> - ${formatItalianDate(p.joinedAt)}`).join("\n")
     : "Nessuna riserva ancora";
 
   const removedList = lobby.removedParticipants.length > 0
-    ? lobby.removedParticipants.map((p, i) => `• <@${p.userId}>`).join("\n")
+    ? lobby.removedParticipants.map((p, i) => `• <@${p.userId}> - ${formatItalianDate(p.joinedAt)}`).join("\n")
     : "Nessun partecipante rimosso";
 
   const embed = new EmbedBuilder()
@@ -170,7 +181,6 @@ export async function handleButtonInteraction(interaction: ButtonInteraction): P
 
   if (interaction.customId === "rose_join") {
     const existingParticipantIdx = lobby.participants.findIndex((p) => p.userId === userId);
-    const existingReserveIdx = lobby.reserves.findIndex((p) => p.userId === userId);
     const existingRemovedIdx = lobby.removedParticipants.findIndex((p) => p.userId === userId);
 
     if (existingParticipantIdx !== -1) {
@@ -178,13 +188,11 @@ export async function handleButtonInteraction(interaction: ButtonInteraction): P
       return;
     }
 
-    if (existingReserveIdx !== -1) lobby.reserves.splice(existingReserveIdx, 1);
     if (existingRemovedIdx !== -1) lobby.removedParticipants.splice(existingRemovedIdx, 1);
 
     lobby.participants.push(participant);
     await interaction.reply({ content: "✅ Ti sei aggiunto ai partecipanti!", ephemeral: true });
   } else if (interaction.customId === "rose_reserve") {
-    const existingParticipantIdx = lobby.participants.findIndex((p) => p.userId === userId);
     const existingReserveIdx = lobby.reserves.findIndex((p) => p.userId === userId);
     const existingRemovedIdx = lobby.removedParticipants.findIndex((p) => p.userId === userId);
 
@@ -193,7 +201,6 @@ export async function handleButtonInteraction(interaction: ButtonInteraction): P
       return;
     }
 
-    if (existingParticipantIdx !== -1) lobby.participants.splice(existingParticipantIdx, 1);
     if (existingRemovedIdx !== -1) lobby.removedParticipants.splice(existingRemovedIdx, 1);
 
     lobby.reserves.push(participant);

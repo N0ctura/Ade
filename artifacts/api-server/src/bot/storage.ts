@@ -212,6 +212,7 @@ export interface BotConfig {
   deletedModifiedLogs?: DeletedModifiedLog[];
   roseLobbyChannelId?: string;
   activeRoseLobby?: RoseLobby;
+  lastPollWasShuffled?: boolean;
 }
 
 const DEFAULT_CONFIG: BotConfig = {

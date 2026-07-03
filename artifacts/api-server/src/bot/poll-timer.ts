@@ -233,10 +233,11 @@ export async function closePoll(client: Client): Promise<void> {
   let resultText: string;
   let winnerImageUrl: string | undefined;
   let winnerAttachment: AttachmentBuilder | undefined;
+  const wasRimescolo = winners.length === 1 && winners[0] === RIMESCOLO_IDX;
 
   if (winners.length === 0) {
     resultText = messages.nessunVoto;
-  } else if (winners.length === 1 && winners[0] === RIMESCOLO_IDX) {
+  } else if (wasRimescolo) {
     resultText = `🔀 **Il clan ha votato per il Rimescolo!** Ricordati di rimescolare le missioni manualmente nel gioco, poi pubblica un nuovo sondaggio.`;
   } else if (winners.length > 1) {
     const tiedLabels = winners
@@ -305,6 +306,7 @@ export async function closePoll(client: Client): Promise<void> {
   }
 
   config.activePoll = undefined;
+  config.lastPollWasShuffled = wasRimescolo;
   saveConfig(config);
-  logger.info({ winners, maxVotes }, "Sondaggio chiuso");
+  logger.info({ winners, maxVotes, wasRimescolo }, "Sondaggio chiuso");
 }
