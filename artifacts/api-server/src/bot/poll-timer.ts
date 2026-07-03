@@ -135,6 +135,16 @@ async function sendTempleSummaries(
 
   const roles = guild.roles.cache.filter((r) => r.name !== "@everyone");
 
+  let winnerAttachment: AttachmentBuilder | undefined;
+  if (winnerImageUrl) {
+    try {
+      const winnerImageBuffer = await getWinnerImageBuffer(winnerImageUrl);
+      winnerAttachment = new AttachmentBuilder(winnerImageBuffer, { name: "winner-quest.png" });
+    } catch (err) {
+      logger.warn({ err }, "Impossibile caricare l'immagine della missione vincitrice");
+    }
+  }
+
   let matchCount = 0;
   for (const [, role] of roles) {
     const normRole = normalize(role.name);
@@ -166,16 +176,7 @@ async function sendTempleSummaries(
       .setTimestamp()
       .setFooter({ text: role.name });
 
-    let templeAttachment: AttachmentBuilder | undefined;
-    if (winnerImageUrl) {
-      try {
-        const buffer = await getWinnerImageBuffer(winnerImageUrl);
-        templeAttachment = new AttachmentBuilder(buffer, { name: "winner-quest.png" });
-        embed.setImage(`attachment://winner-quest.png`);
-      } catch (err) {
-        logger.warn({ err }, "Impossibile caricare l'immagine per il canale tempio");
-      }
-    }
+    if (winnerAttachment) embed.setImage(`attachment://winner-quest.png`);
 
     // Campo "Hanno votato"
     const votedChunks = splitFieldValue(voted.map((l) => `• ${l}`));
@@ -210,7 +211,7 @@ async function sendTempleSummaries(
     try {
       await templeChannel.send({
         embeds: [embed],
-        ...(templeAttachment ? { files: [templeAttachment] } : {}),
+        ...(winnerAttachment ? { files: [winnerAttachment] } : {}),
       });
       logger.info({ role: role.name, channel: templeChannel.name, voted: voted.length, notVoted: notVoted.length }, "Riepilogo inviato");
     } catch (err) {
@@ -241,12 +242,11 @@ export async function closePoll(client: Client): Promise<void> {
 
   let resultText: string;
   let winnerImageUrl: string | undefined;
-  let winnerImageBuffer: Buffer | undefined;
-  const wasRimescolo = winners.length === 1 && winners[0] === RIMESCOLO_IDX;
+  let winnerAttachment: AttachmentBuilder | undefined;
 
   if (winners.length === 0) {
     resultText = messages.nessunVoto;
-  } else if (wasRimescolo) {
+  } else if (winners.length === 1 && winners[0] === RIMESCOLO_IDX) {
     resultText = `🔀 **Il clan ha votato per il Rimescolo!** Ricordati di rimescolare le missioni manualmente nel gioco, poi pubblica un nuovo sondaggio.`;
   } else if (winners.length > 1) {
     const tiedLabels = winners
@@ -260,7 +260,8 @@ export async function closePoll(client: Client): Promise<void> {
     winnerImageUrl = poll.questImageUrls?.[winnerIdx];
     if (winnerImageUrl) {
       try {
-        winnerImageBuffer = await getWinnerImageBuffer(winnerImageUrl);
+        const winnerImageBuffer = await getWinnerImageBuffer(winnerImageUrl);
+        winnerAttachment = new AttachmentBuilder(winnerImageBuffer, { name: "winner-quest.png" });
       } catch (err) {
         logger.warn({ err }, "Impossibile caricare l'immagine della missione vincitrice per il canale sondaggi");
       }
@@ -285,17 +286,12 @@ export async function closePoll(client: Client): Promise<void> {
       .setColor(EMBED_COLOR)
       .setTimestamp();
 
-    // Crea attachment per canale sondaggi
-    const pollAttachment = winnerImageBuffer
-      ? new AttachmentBuilder(winnerImageBuffer, { name: "winner-quest.png" })
-      : undefined;
-
-    if (pollAttachment) closeEmbed.setImage(`attachment://winner-quest.png`);
+    if (winnerAttachment) closeEmbed.setImage(`attachment://winner-quest.png`);
 
     await pollChannel.send({
       content: roleMention || undefined,
       embeds: [closeEmbed],
-      ...(pollAttachment ? { files: [pollAttachment] } : {}),
+      ...(winnerAttachment ? { files: [winnerAttachment] } : {}),
       allowedMentions: { roles: roleId ? [roleId] : [] },
     });
 
@@ -319,6 +315,7 @@ export async function closePoll(client: Client): Promise<void> {
   }
 
   config.activePoll = undefined;
+  const wasRimescolo = winners.length === 1 && winners[0] === RIMESCOLO_IDX;
   config.lastPollWasShuffled = wasRimescolo;
   saveConfig(config);
   logger.info({ winners, maxVotes, wasRimescolo }, "Sondaggio chiuso");
