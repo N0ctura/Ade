@@ -13,7 +13,6 @@ import {
   PermissionFlagsBits,
   ComponentType,
   type TextChannel,
-  AutocompleteInteraction,
 } from "discord.js";
 import { logger } from "../../lib/logger";
 import { loadConfig, saveConfig, DEFAULT_MESSAGES, THRESHOLD_ROLE_ID_SET, type BotMessages } from "../storage.js";
@@ -111,13 +110,12 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     // Escludi @everyone, bot-managed e ruoli soglia XP (sono 36 e riempirebbero tutti gli slot).
     // Ordina per posizione crescente: i ruoli più bassi (es. @tutti, @membri) vengono prima,
     // così le 25 opzioni disponibili contengono i ruoli effettivamente utili da pingare.
-    // IMPORTANTE: Converti Collection in array con .toArray() prima di usare .slice()
-    const guildRolesArray = guild.roles.cache
+    // .sort() su una Collection ritorna un array, non una Collection
+    const guildRoles = guild.roles.cache
       .filter((r) => r.name !== "@everyone" && !r.managed && !THRESHOLD_ROLE_ID_SET.has(r.id))
-      .sort((a, b) => a.position - b.position)
-      .toArray();
+      .sort((a, b) => a.position - b.position);
 
-    const roleOptions = guildRolesArray
+    const roleOptions = guildRoles
       .slice(0, 25)
       .map((r) =>
         new StringSelectMenuOptionBuilder().setLabel(`@${r.name}`).setValue(r.name)
@@ -127,7 +125,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
         .setLabel("Nessun ruolo pellegrini")
         .setValue("none")
         .setDescription("Non impostare alcun ruolo ospite"),
-      ...guildRolesArray.slice(0, 24).map((r) =>
+      ...guildRoles.slice(0, 24).map((r) =>
         new StringSelectMenuOptionBuilder().setLabel(`@${r.name}`).setValue(r.id)
       ),
     ];
