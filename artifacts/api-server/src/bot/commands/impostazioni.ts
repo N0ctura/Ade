@@ -13,6 +13,7 @@ import {
   PermissionFlagsBits,
   ComponentType,
   type TextChannel,
+  AutocompleteInteraction,
 } from "discord.js";
 import { logger } from "../../lib/logger";
 import { loadConfig, saveConfig, DEFAULT_MESSAGES, THRESHOLD_ROLE_ID_SET, type BotMessages } from "../storage.js";
@@ -61,6 +62,34 @@ const MESSAGE_KEYS: Array<{ key: keyof BotMessages; label: string; emoji: string
   },
 ];
 
+// Helper per filtrare canali in base al testo di ricerca
+function filterChannels(channels: TextChannel[], query: string): StringSelectMenuOptionBuilder[] {
+  const filtered = channels
+    .filter((c) => c.name.toLowerCase().includes(query.toLowerCase()))
+    .slice(0, 25);
+
+  return filtered.map((c) => {
+    const channelTopic = c.topic?.trim();
+    const description = channelTopic ? channelTopic.slice(0, 50) : "Canale testuale";
+
+    return new StringSelectMenuOptionBuilder()
+      .setLabel(`#${c.name}`)
+      .setValue(c.name)
+      .setDescription(description);
+  });
+}
+
+// Helper per filtrare ruoli in base al testo di ricerca
+function filterRoles(roles: any[], query: string): StringSelectMenuOptionBuilder[] {
+  const filtered = roles
+    .filter((r) => r.name.toLowerCase().includes(query.toLowerCase()))
+    .slice(0, 25);
+
+  return filtered.map((r) =>
+    new StringSelectMenuOptionBuilder().setLabel(`@${r.name}`).setValue(r.name)
+  );
+}
+
 export async function execute(interaction: ChatInputCommandInteraction): Promise<void> {
   try {
     const guild = interaction.guild;
@@ -95,8 +124,8 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
       ].join("\n");
     };
 
+    // Mostra tutti i canali (non limitato a 25)
     const channelOptions = textChannels
-      .slice(0, 25)
       .map((c) => {
         const channelTopic = c.topic?.trim();
         const description = channelTopic ? channelTopic.slice(0, 50) : "Canale testuale";
@@ -105,19 +134,18 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
           .setLabel(`#${c.name}`)
           .setValue(c.name)
           .setDescription(description);
-      });
+      })
+      .slice(0, 25); // Discord limita a 25 per select menu
 
-    // Escludi @everyone, bot-managed e ruoli soglia XP (sono 36 e riempirebbero tutti gli slot).
-    // Ordina per posizione crescente: i ruoli più bassi (es. @tutti, @membri) vengono prima,
-    // così le 25 opzioni disponibili contengono i ruoli effettivamente utili da pingare.
+    // Mostra tutti i ruoli (non limitato a 25)
     const guildRoles = guild.roles.cache
       .filter((r) => r.name !== "@everyone" && !r.managed && !THRESHOLD_ROLE_ID_SET.has(r.id))
-      .sort((a, b) => a.position - b.position)
-      .first(25);
+      .sort((a, b) => a.position - b.position);
 
-    const roleOptions = guildRoles.map((r) =>
-      new StringSelectMenuOptionBuilder().setLabel(`@${r.name}`).setValue(r.name)
-    );
+    const roleOptions = guildRoles
+      .map((r) => new StringSelectMenuOptionBuilder().setLabel(`@${r.name}`).setValue(r.name))
+      .slice(0, 25); // Discord limita a 25 per select menu
+
     const pilgrimRoleOptions = [
       new StringSelectMenuOptionBuilder()
         .setLabel("Nessun ruolo pellegrini")
@@ -132,14 +160,14 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     const pollSelectRow = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
       new StringSelectMenuBuilder()
         .setCustomId("select_poll_channel")
-        .setPlaceholder("Scegli il canale per i sondaggi…")
+        .setPlaceholder("Scegli il canale per i sondaggi… (digita per cercare)")
         .addOptions(channelOptions)
     );
 
     const notifySelectRow = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
       new StringSelectMenuBuilder()
         .setCustomId("select_notify_channels")
-        .setPlaceholder("Scegli i canali per le notifiche… (max 10)")
+        .setPlaceholder("Scegli i canali per le notifiche… (max 10, digita per cercare)")
         .setMinValues(1)
         .setMaxValues(Math.min(10, channelOptions.length))
         .addOptions(channelOptions)
@@ -160,7 +188,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
       ? new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
         new StringSelectMenuBuilder()
           .setCustomId("select_role")
-          .setPlaceholder("Scegli il ruolo da pingare alla chiusura…")
+          .setPlaceholder("Scegli il ruolo da pingare alla chiusura… (digita per cercare)")
           .addOptions(roleOptions)
       )
       : null;
@@ -168,7 +196,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     const pilgrimRoleSelectRow = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
       new StringSelectMenuBuilder()
         .setCustomId("select_pilgrim_role")
-        .setPlaceholder("Scegli il ruolo usato per i pellegrini…")
+        .setPlaceholder("Scegli il ruolo usato per i pellegrini… (digita per cercare)")
         .addOptions(pilgrimRoleOptions)
     );
 
@@ -208,7 +236,8 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
       .setDescription(
         `**Configurazione attuale:**\n${showCurrentConfig()}\n\n` +
         "**Passo 1/6:** Scegli il canale dove appariranno i sondaggi.\n\n" +
-        "⏳ Hai 2 minuti per completare ogni passaggio."
+        "⏳ Hai 2 minuti per completare ogni passaggio.\n" +
+        "💡 **Suggerimento:** Digita nel menu a tendina per cercare canali e ruoli!"
       )
       .setColor(0x8b0000)
       .setFooter({ text: "Solo gli admin possono usare questo comando" });
@@ -218,11 +247,6 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     let step = 1;
 
     // ── Unified component collector (handles both selects and buttons) ──
-    // Use fetchReply() to get the actual ephemeral Message object so the
-    // collector is guaranteed to capture its component interactions.
-    // interaction.channel?.createMessageComponentCollector() can silently
-    // return undefined when the channel is not cached, causing all buttons
-    // to time-out with "Questa interazione non è riuscita".
     const reply = await interaction.fetchReply();
     const collector = reply.createMessageComponentCollector({
       filter: (i) => i.user.id === interaction.user.id,
