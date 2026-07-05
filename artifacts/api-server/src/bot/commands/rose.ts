@@ -11,6 +11,7 @@ import {
   type TextChannel,
   type Message,
   type ButtonInteraction,
+  AutocompleteInteraction,
 } from "discord.js";
 import { join } from "node:path";
 import { loadConfig, saveConfig, type RoseLobby, type RoseLobbyParticipant } from "../storage.js";
@@ -98,9 +99,37 @@ export const data = new SlashCommandBuilder()
   .addStringOption((opt) =>
     opt.setName("messaggio").setDescription("Messaggio personalizzato da mostrare sopra la lista").setRequired(false)
   )
-  .addChannelOption((opt) =>
-    opt.setName("canale").setDescription("Canale dove mandare il messaggio (solo la prima volta)").setRequired(false)
+  .addStringOption((opt) =>
+    opt
+      .setName("canale")
+      .setDescription("Canale dove mandare il messaggio (solo la prima volta)")
+      .setRequired(false)
+      .setAutocomplete(true)
   );
+
+export async function handleAutocomplete(interaction: AutocompleteInteraction): Promise<void> {
+  const guild = interaction.guild;
+  if (!guild) return;
+
+  const focusedValue = interaction.options.getFocused(true);
+
+  if (focusedValue.name === "canale") {
+    const textChannels = guild.channels.cache
+      .filter((c) => c.isTextBased() && !c.isThread())
+      .map((c) => c as TextChannel)
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    const filtered = textChannels
+      .filter((c) => c.name.toLowerCase().includes(focusedValue.value.toLowerCase()))
+      .slice(0, 25)
+      .map((c) => ({
+        name: `#${c.name}`,
+        value: c.id,
+      }));
+
+    await interaction.respond(filtered);
+  }
+}
 
 export async function execute(interaction: ChatInputCommandInteraction): Promise<void> {
   await interaction.deferReply({ ephemeral: true });
@@ -113,18 +142,20 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 
   const config = loadConfig();
   const customMessage = interaction.options.getString("messaggio");
-  const channelOption = interaction.options.getChannel("canale");
+  const channelId = interaction.options.getString("canale");
 
   let targetChannel: TextChannel | undefined;
 
-  if (channelOption) {
-    if (channelOption.type !== ChannelType.GuildText && channelOption.type !== ChannelType.GuildAnnouncement) {
-      await interaction.editReply({ content: "❌ Devi selezionare un canale testuale valido." });
+  if (channelId) {
+    const channelFromId = guild.channels.cache.get(channelId);
+    if (channelFromId && (channelFromId.type === ChannelType.GuildText || channelFromId.type === ChannelType.GuildAnnouncement)) {
+      targetChannel = channelFromId as TextChannel;
+      config.roseLobbyChannelId = targetChannel.id;
+      saveConfig(config);
+    } else {
+      await interaction.editReply({ content: "❌ Canale non valido!" });
       return;
     }
-    targetChannel = channelOption as TextChannel;
-    config.roseLobbyChannelId = targetChannel.id;
-    saveConfig(config);
   } else if (config.roseLobbyChannelId) {
     const channelFromCache = guild.channels.cache.get(config.roseLobbyChannelId);
     if (channelFromCache && (channelFromCache.type === ChannelType.GuildText || channelFromCache.type === ChannelType.GuildAnnouncement)) {
@@ -234,3 +265,4 @@ export async function handleButtonInteraction(interaction: ButtonInteraction): P
     attachments: [],
   });
 }
+
