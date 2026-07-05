@@ -74,16 +74,26 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     const config = loadConfig();
 
     const showCurrentConfig = () => {
+      const validNotifyChannelIds = (config.notifyChannelIds ?? []).filter((channelId) => guild.channels.cache.has(channelId));
+      const validPollChannelId = config.pollChannelId && guild.channels.cache.has(config.pollChannelId)
+        ? config.pollChannelId
+        : null;
+      const validPingRoleId = config.pingRoleId && guild.roles.cache.has(config.pingRoleId)
+        ? config.pingRoleId
+        : undefined;
+      const validPilgrimRoleId = config.pilgrimRoleId && guild.roles.cache.has(config.pilgrimRoleId)
+        ? config.pilgrimRoleId
+        : undefined;
       const durLabel =
         config.pollDurationHours && config.pollDurationHours > 0
           ? `${config.pollDurationHours} ore`
           : "Nessun timer";
-      const pollChannelMention = config.pollChannelId ? `<#${config.pollChannelId}>` : "❌ non impostato";
-      const notifyChannelsMention = config.notifyChannelIds.length > 0
-        ? config.notifyChannelIds.map(id => `<#${id}>`).join(", ")
+      const pollChannelMention = validPollChannelId ? `<#${validPollChannelId}>` : "❌ non impostato";
+      const notifyChannelsMention = validNotifyChannelIds.length > 0
+        ? validNotifyChannelIds.map(id => `<#${id}>`).join(", ")
         : "❌ nessuno";
-      const pingRoleMention = config.pingRoleId ? `<@&${config.pingRoleId}>` : "❌ non impostato";
-      const pilgrimRoleMention = config.pilgrimRoleId ? `<@&${config.pilgrimRoleId}>` : "❌ non impostato";
+      const pingRoleMention = validPingRoleId ? `<@&${validPingRoleId}>` : "❌ non impostato";
+      const pilgrimRoleMention = validPilgrimRoleId ? `<@&${validPilgrimRoleId}>` : "❌ non impostato";
       return [
         `📊 **Canale sondaggi:** ${pollChannelMention}`,
         `🔔 **Canali notifica:** ${notifyChannelsMention}`,

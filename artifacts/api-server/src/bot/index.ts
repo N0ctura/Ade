@@ -268,8 +268,23 @@ export async function startBot(): Promise<void> {
       }
     }
 
-    if (!interaction.isChatInputCommand()) return;
+    if (!interaction.isAutocomplete() && !interaction.isChatInputCommand()) return;
+
     const command = commands.get(interaction.commandName);
+
+    if (interaction.isAutocomplete()) {
+      const autocompleteCommand = command as (BotCommand & {
+        handleAutocomplete?: (interaction: any) => Promise<void>;
+      }) | undefined;
+      if (autocompleteCommand?.handleAutocomplete) {
+        try {
+          await autocompleteCommand.handleAutocomplete(interaction);
+        } catch (err) {
+          logger.error({ err, command: interaction.commandName }, "Errore autocomplete");
+        }
+      }
+      return;
+    }
     if (!command) return;
 
     try {

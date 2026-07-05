@@ -226,6 +226,24 @@ const DEFAULT_CONFIG: BotConfig = {
   notifyChannelIds: [],
 };
 
+function normalizeConfig(config: Partial<BotConfig> | null | undefined): BotConfig {
+  return {
+    ...DEFAULT_CONFIG,
+    ...config,
+    notifyChannelIds: Array.isArray(config?.notifyChannelIds) ? config.notifyChannelIds : [],
+    notifyChannelNames: Array.isArray(config?.notifyChannelNames) ? config.notifyChannelNames : [],
+    templeRoleNames: Array.isArray(config?.templeRoleNames) ? config.templeRoleNames : [],
+    leaderRoleNames: Array.isArray(config?.leaderRoleNames) ? config.leaderRoleNames : [],
+    thresholdRoleNames: Array.isArray(config?.thresholdRoleNames) ? config.thresholdRoleNames : [],
+    welcomeLeaveConfigs: Array.isArray(config?.welcomeLeaveConfigs) ? config.welcomeLeaveConfigs : [],
+    autoResponses: Array.isArray(config?.autoResponses) ? config.autoResponses : [],
+    scheduledMessages: Array.isArray(config?.scheduledMessages) ? config.scheduledMessages : [],
+    ttsConfigs: Array.isArray(config?.ttsConfigs) ? config.ttsConfigs : [],
+    logsConfigs: Array.isArray(config?.logsConfigs) ? config.logsConfigs : [],
+    deletedModifiedLogs: Array.isArray(config?.deletedModifiedLogs) ? config.deletedModifiedLogs : [],
+  };
+}
+
 // ── Cache in memoria ─────────────────────────────────────────────────────────
 // loadConfig() è sincrona — legge sempre dalla cache.
 // saveConfig() aggiorna la cache e avvia una scrittura asincrona sul DB.
@@ -322,14 +340,14 @@ export async function initStorage(): Promise<void> {
   await dbEnsureTable();
   const dbConfig = await dbLoad();
   if (dbConfig) {
-    cache = dbConfig;
+    cache = normalizeConfig(dbConfig);
     logger.info("storage: config caricata da PostgreSQL ✅");
     return;
   }
 
   const fileConfig = fileLoad();
   if (fileConfig) {
-    cache = fileConfig;
+    cache = normalizeConfig(fileConfig);
     logger.info("storage: config caricata dal file locale (migrazione → PostgreSQL in corso)");
     // Migra subito su DB così i prossimi riavvii usano il DB
     await dbUpsert(cache);
@@ -342,6 +360,7 @@ export async function initStorage(): Promise<void> {
 
 /** Lettura sincrona dalla cache in memoria. */
 export function loadConfig(): BotConfig {
+  cache = normalizeConfig(cache);
   return cache;
 }
 
@@ -350,9 +369,9 @@ export function loadConfig(): BotConfig {
  * La scrittura su DB è asincrona (fire-and-forget con log degli errori).
  */
 export function saveConfig(config: BotConfig): void {
-  cache = config;
-  fileSave(config); // backup locale sincrono
-  void dbUpsert(config); // persistenza principale asincrona
+  cache = normalizeConfig(config);
+  fileSave(cache); // backup locale sincrono
+  void dbUpsert(cache); // persistenza principale asincrona
 }
 
 export function getMessages(config: BotConfig): BotMessages {

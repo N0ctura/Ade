@@ -11,7 +11,7 @@ import {
   type TextChannel,
   type Message,
   type ButtonInteraction,
-  AutocompleteInteraction,
+  type MessageCreateOptions,
 } from "discord.js";
 import { join } from "node:path";
 import { loadConfig, saveConfig, type RoseLobby, type RoseLobbyParticipant } from "../storage.js";
@@ -39,7 +39,7 @@ function formatItalianDate(dateStr: string): string {
   });
 }
 
-function generateLobbyMessage(lobby: RoseLobby): { content: string; embeds: EmbedBuilder[]; components: ActionRowBuilder<ButtonBuilder>[]; files?: AttachmentBuilder[]; allowedMentions?: { parse: string[] } } {
+function generateLobbyMessage(lobby: RoseLobby): MessageCreateOptions {
   const participantsList = lobby.participants.length > 0
     ? lobby.participants.map((p, i) => `${i + 1}. <@${p.userId}> - ${formatItalianDate(p.joinedAt)}`).join("\n")
     : "Nessun partecipante ancora";
@@ -88,7 +88,7 @@ function generateLobbyMessage(lobby: RoseLobby): { content: string; embeds: Embe
     embeds: [embed],
     components: [row],
     files: [logoAttachment],
-    allowedMentions: { parse: ["roles", "users"] }, // Permetti menzioni di ruoli e utenti
+    allowedMentions: { parse: ["roles", "users"] as const }, // Permetti menzioni di ruoli e utenti
   };
 }
 
@@ -99,37 +99,13 @@ export const data = new SlashCommandBuilder()
   .addStringOption((opt) =>
     opt.setName("messaggio").setDescription("Messaggio personalizzato da mostrare sopra la lista").setRequired(false)
   )
-  .addStringOption((opt) =>
+  .addChannelOption((opt) =>
     opt
       .setName("canale")
       .setDescription("Canale dove mandare il messaggio (solo la prima volta)")
       .setRequired(false)
-      .setAutocomplete(true)
+      .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
   );
-
-export async function handleAutocomplete(interaction: AutocompleteInteraction): Promise<void> {
-  const guild = interaction.guild;
-  if (!guild) return;
-
-  const focusedValue = interaction.options.getFocused(true);
-
-  if (focusedValue.name === "canale") {
-    const textChannels = guild.channels.cache
-      .filter((c) => c.isTextBased() && !c.isThread())
-      .map((c) => c as TextChannel)
-      .sort((a, b) => a.name.localeCompare(b.name));
-
-    const filtered = textChannels
-      .filter((c) => c.name.toLowerCase().includes(focusedValue.value.toLowerCase()))
-      .slice(0, 25)
-      .map((c) => ({
-        name: `#${c.name}`,
-        value: c.id,
-      }));
-
-    await interaction.respond(filtered);
-  }
-}
 
 export async function execute(interaction: ChatInputCommandInteraction): Promise<void> {
   await interaction.deferReply({ ephemeral: true });
@@ -142,14 +118,13 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 
   const config = loadConfig();
   const customMessage = interaction.options.getString("messaggio");
-  const channelId = interaction.options.getString("canale");
+  const selectedChannel = interaction.options.getChannel("canale");
 
   let targetChannel: TextChannel | undefined;
 
-  if (channelId) {
-    const channelFromId = guild.channels.cache.get(channelId);
-    if (channelFromId && (channelFromId.type === ChannelType.GuildText || channelFromId.type === ChannelType.GuildAnnouncement)) {
-      targetChannel = channelFromId as TextChannel;
+  if (selectedChannel) {
+    if (selectedChannel.type === ChannelType.GuildText || selectedChannel.type === ChannelType.GuildAnnouncement) {
+      targetChannel = selectedChannel as TextChannel;
       config.roseLobbyChannelId = targetChannel.id;
       saveConfig(config);
     } else {
@@ -157,9 +132,9 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
       return;
     }
   } else if (config.roseLobbyChannelId) {
-    const channelFromCache = guild.channels.cache.get(config.roseLobbyChannelId);
-    if (channelFromCache && (channelFromCache.type === ChannelType.GuildText || channelFromCache.type === ChannelType.GuildAnnouncement)) {
-      targetChannel = channelFromCache as TextChannel;
+    const storedChannel = await guild.channels.fetch(config.roseLobbyChannelId).catch(() => null);
+    if (storedChannel && (storedChannel.type === ChannelType.GuildText || storedChannel.type === ChannelType.GuildAnnouncement)) {
+      targetChannel = storedChannel as TextChannel;
     }
   }
 
