@@ -194,15 +194,19 @@ export interface RoseLobby {
 }
 
 export interface BotConfig {
-  pollChannelName: string | null;
-  notifyChannelNames: string[];
+  pollChannelId?: string | null;
+  notifyChannelIds: string[];
   pollDurationHours?: number;
-  pingRoleName?: string;
+  pingRoleId?: string;
   pilgrimRoleId?: string;
-  pilgrimRoleName?: string;
   clanId?: string;
   activePoll?: ActivePoll;
   messages?: Partial<BotMessages>;
+  // Deprecated fields for backward compatibility
+  pollChannelName?: string | null;
+  notifyChannelNames?: string[];
+  pingRoleName?: string;
+  pilgrimRoleName?: string;
   templeRoleNames?: string[];
   leaderRoleNames?: string[];
   thresholdRoleNames?: string[];
@@ -218,8 +222,8 @@ export interface BotConfig {
 }
 
 const DEFAULT_CONFIG: BotConfig = {
-  pollChannelName: null,
-  notifyChannelNames: [],
+  pollChannelId: null,
+  notifyChannelIds: [],
 };
 
 // ── Cache in memoria ─────────────────────────────────────────────────────────

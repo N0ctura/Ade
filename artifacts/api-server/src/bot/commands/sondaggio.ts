@@ -130,7 +130,27 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 
   const config = loadConfig();
 
-  if (!config.pollChannelName) {
+  // Backward compatibility: migrate from name to ID if needed
+  if (!config.pollChannelId && config.pollChannelName) {
+    const oldPollChannel = guild.channels.cache.find(
+      (c) => c.isTextBased() && !c.isThread() && c.name === config.pollChannelName
+    );
+    if (oldPollChannel) {
+      config.pollChannelId = oldPollChannel.id;
+    }
+  }
+  if (!config.notifyChannelIds.length && config.notifyChannelNames?.length) {
+    config.notifyChannelIds = config.notifyChannelNames
+      .map(name => {
+        const ch = guild.channels.cache.find(
+          (c) => c.isTextBased() && !c.isThread() && c.name === name
+        );
+        return ch?.id;
+      })
+      .filter((id): id is string => !!id);
+  }
+
+  if (!config.pollChannelId) {
     await interaction.editReply({ content: "❌ Il canale sondaggi non è configurato. Usa `/impostazioni`." });
     return;
   }
@@ -163,13 +183,11 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     return;
   }
 
-  const pollChannel = guild.channels.cache.find(
-    (c) => c.isTextBased() && !c.isThread() && c.name === config.pollChannelName
-  ) as TextChannel | undefined;
+  const pollChannel = guild.channels.cache.get(config.pollChannelId) as TextChannel | undefined;
 
   if (!pollChannel) {
     await interaction.editReply({
-      content: `❌ Canale **#${config.pollChannelName}** non trovato. Usa \`/impostazioni\`.`,
+      content: `❌ Canale non trovato. Usa \`/impostazioni\`.`,
     });
     return;
   }
@@ -222,22 +240,20 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
   );
 
   const notifyResults: string[] = [];
-  for (const channelName of config.notifyChannelNames) {
-    if (channelName === config.pollChannelName) continue;
-    const notifyChannel = guild.channels.cache.find(
-      (c) => c.isTextBased() && !c.isThread() && c.name === channelName
-    ) as TextChannel | undefined;
-    if (!notifyChannel) { notifyResults.push(`⚠️ #${channelName}: non trovato`); continue; }
+  for (const channelId of config.notifyChannelIds) {
+    if (channelId === config.pollChannelId) continue;
+    const notifyChannel = guild.channels.cache.get(channelId) as TextChannel | undefined;
+    if (!notifyChannel) { notifyResults.push(`⚠️ Canale non trovato`); continue; }
 
     // Cerca il ruolo corrispondente al canale (es. #tempio-degli-abissi → ruolo Tempio-degli-Abissi)
-    const matchingRole = roleByNorm.get(normalize(channelName));
+    const matchingRole = roleByNorm.get(normalize(notifyChannel.name));
     const roleMention = matchingRole ? `<@&${matchingRole.id}>` : undefined;
     const allowedRoles = matchingRole ? [matchingRole.id] : [];
 
     const embed = new EmbedBuilder()
       .setTitle("🐺 Sono usciti i nuovi sondaggi missione!")
       .setDescription(
-        `Vai in **#${config.pollChannelName}**, vota la missione che vuoi fare e comunicalo al clan! 💪`
+        `Vai in <#${config.pollChannelId}>, vota la missione che vuoi fare e comunicalo al clan! 💪`
       )
       .setColor(0x8b0000);
 
@@ -246,12 +262,12 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
       embeds: [embed],
       allowedMentions: { roles: allowedRoles },
     });
-    notifyResults.push(`✅ #${channelName}${matchingRole ? ` (ping @${matchingRole.name})` : ""}`);
+    notifyResults.push(`✅ <#${channelId}>${matchingRole ? ` (ping @${matchingRole.name})` : ""}`);
   }
 
   const replyLines = [
     `✅ **Sondaggio pubblicato!**`,
-    `📊 Canale: **#${config.pollChannelName}**`,
+    `📊 Canale: <#${config.pollChannelId}>`,
     `🎯 Missioni: **${quests.length}**`,
     closesAt
       ? `⏱️ Chiusura automatica: **${new Date(closesAt).toLocaleString("it-IT")}**`

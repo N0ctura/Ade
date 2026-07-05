@@ -199,8 +199,6 @@ function resolveTempleRoles(guild: Guild): Map<string, Role | null> {
 }
 
 function buildTempleData(guild: Guild, humans: GuildMember[]): TempleData[] {
-  const config = loadConfig();
-  const pilgrimRoleId = config.pilgrimRoleId;
   const templeRoles = resolveTempleRoles(guild);
 
   return TEMPLE_DEFINITIONS.map((definition) => {
@@ -212,10 +210,7 @@ function buildTempleData(guild: Guild, humans: GuildMember[]): TempleData[] {
       .map((role) => role.id);
 
     const membersInTemple = humans
-      .filter((member) => {
-        if (pilgrimRoleId && member.roles.cache.has(pilgrimRoleId)) return false;
-        return member.roles.cache.some((role) => isTempleMemberRole(role, definition));
-      })
+      .filter((member) => member.roles.cache.some((role) => isTempleMemberRole(role, definition)))
       .sort(compareMembers);
 
     const coLeaderIdSet = new Set(
@@ -282,6 +277,7 @@ function buildOverviewEmbeds(humans: GuildMember[], pilgrims: GuildMember[], tem
       `**Membri normali:** ${members.length}`,
       `**Pellegrini:** ${pilgrims.length}`,
       `**Templi rilevati:** ${temples.length}`,
+      `**Ruolo pellegrini:** ${loadConfig().pilgrimRoleName ? `@${loadConfig().pilgrimRoleName}` : "non configurato"}`,
       "",
       "Usa il menu qui sotto per aprire la lista che ti serve.",
     ].join("\n"),
@@ -386,11 +382,16 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 
   const config = loadConfig();
   const humans = guild.members.cache.filter((member) => !member.user.bot).toJSON();
+  const temples = buildTempleData(guild, humans);
+  const templeMemberIds = new Set(
+    temples.flatMap((temple) => [...temple.coLeaders, ...temple.members].map((member) => member.id))
+  );
   const pilgrimRole = config.pilgrimRoleId ? guild.roles.cache.get(config.pilgrimRoleId) : null;
   const pilgrims = pilgrimRole
-    ? humans.filter((member) => member.roles.cache.has(pilgrimRole.id)).sort(compareMembers)
+    ? humans
+      .filter((member) => member.roles.cache.has(pilgrimRole.id) && !templeMemberIds.has(member.id))
+      .sort(compareMembers)
     : [];
-  const temples = buildTempleData(guild, humans);
   const menuRow = buildMenuRow(temples);
 
   const overviewEmbeds = buildOverviewEmbeds(humans, pilgrims, temples);

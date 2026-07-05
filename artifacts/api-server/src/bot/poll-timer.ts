@@ -249,10 +249,28 @@ export async function closePoll(client: Client): Promise<void> {
     const pollChannel = guild.channels.cache.get(poll.channelId) as TextChannel | undefined;
     if (!pollChannel) continue;
 
+    // Backward compatibility
+    if (!config.pingRoleId && config.pingRoleName) {
+      const oldRole = guild.roles.cache.find((r) => r.name === config.pingRoleName);
+      if (oldRole) {
+        config.pingRoleId = oldRole.id;
+      }
+    }
+    if (!config.notifyChannelIds.length && config.notifyChannelNames?.length) {
+      config.notifyChannelIds = config.notifyChannelNames
+        .map(name => {
+          const ch = guild.channels.cache.find(
+            (c) => c.isTextBased() && !c.isThread() && c.name === name
+          );
+          return ch?.id;
+        })
+        .filter((id): id is string => !!id);
+    }
+
     let roleMention = "";
     let roleId = "";
-    if (config.pingRoleName) {
-      const role = guild.roles.cache.find((r) => r.name === config.pingRoleName);
+    if (config.pingRoleId) {
+      const role = guild.roles.cache.get(config.pingRoleId);
       if (role) { roleId = role.id; roleMention = `<@&${role.id}>`; }
     }
 
@@ -272,11 +290,9 @@ export async function closePoll(client: Client): Promise<void> {
       allowedMentions: { roles: roleId ? [roleId] : [] },
     });
 
-    for (const channelName of config.notifyChannelNames) {
-      if (channelName === config.pollChannelName) continue;
-      const notifyChannel = guild.channels.cache.find(
-        (c) => c.isTextBased() && !c.isThread() && c.name === channelName
-      ) as TextChannel | undefined;
+    for (const channelId of config.notifyChannelIds) {
+      if (channelId === poll.channelId) continue;
+      const notifyChannel = guild.channels.cache.get(channelId) as TextChannel | undefined;
       if (!notifyChannel) continue;
       const notifyEmbed = new EmbedBuilder()
         .setTitle("🏁 I sondaggi sono chiusi!")

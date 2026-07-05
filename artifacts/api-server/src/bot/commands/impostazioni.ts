@@ -3,19 +3,21 @@ import {
   SlashCommandBuilder,
   EmbedBuilder,
   ActionRowBuilder,
-  StringSelectMenuBuilder,
-  StringSelectMenuOptionBuilder,
   ButtonBuilder,
   ButtonStyle,
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle,
   PermissionFlagsBits,
-  ComponentType,
+  ChannelType,
+  ChannelSelectMenuBuilder,
+  RoleSelectMenuBuilder,
+  StringSelectMenuBuilder,
+  StringSelectMenuOptionBuilder,
   type TextChannel,
 } from "discord.js";
 import { logger } from "../../lib/logger.js";
-import { loadConfig, saveConfig, DEFAULT_MESSAGES, THRESHOLD_ROLE_ID_SET, type BotMessages } from "../storage.js";
+import { loadConfig, saveConfig, DEFAULT_MESSAGES, type BotMessages } from "../storage.js";
 
 export const data = new SlashCommandBuilder()
   .setName("impostazioni")
@@ -71,78 +73,41 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 
     const config = loadConfig();
 
-    const textChannels: TextChannel[] = guild.channels.cache
-      .filter((c) => c.isTextBased() && !c.isThread())
-      .map((c) => c as TextChannel)
-      .sort((a, b) => a.name.localeCompare(b.name));
-
-    if (textChannels.length === 0) {
-      await interaction.reply({ content: "❌ Nessun canale testuale trovato nel server.", ephemeral: true });
-      return;
-    }
-
     const showCurrentConfig = () => {
       const durLabel =
         config.pollDurationHours && config.pollDurationHours > 0
           ? `${config.pollDurationHours} ore`
           : "Nessun timer";
+      const pollChannelMention = config.pollChannelId ? `<#${config.pollChannelId}>` : "❌ non impostato";
+      const notifyChannelsMention = config.notifyChannelIds.length > 0
+        ? config.notifyChannelIds.map(id => `<#${id}>`).join(", ")
+        : "❌ nessuno";
+      const pingRoleMention = config.pingRoleId ? `<@&${config.pingRoleId}>` : "❌ non impostato";
+      const pilgrimRoleMention = config.pilgrimRoleId ? `<@&${config.pilgrimRoleId}>` : "❌ non impostato";
       return [
-        `📊 **Canale sondaggi:** ${config.pollChannelName ? `#${config.pollChannelName}` : "❌ non impostato"}`,
-        `🔔 **Canali notifica:** ${config.notifyChannelNames.length > 0 ? config.notifyChannelNames.map((n) => `#${n}`).join(", ") : "❌ nessuno"}`,
+        `📊 **Canale sondaggi:** ${pollChannelMention}`,
+        `🔔 **Canali notifica:** ${notifyChannelsMention}`,
         `⏱️ **Durata sondaggio:** ${durLabel}`,
-        `🔔 **Ruolo da pingare:** ${config.pingRoleName ? `@${config.pingRoleName}` : "❌ non impostato"}`,
-        `🚶 **Ruolo pellegrini:** ${config.pilgrimRoleName ? `@${config.pilgrimRoleName}` : "❌ non impostato"}`,
+        `🔔 **Ruolo da pingare:** ${pingRoleMention}`,
+        `🚶 **Ruolo pellegrini:** ${pilgrimRoleMention}`,
       ].join("\n");
     };
 
-    const channelOptions = textChannels
-      .slice(0, 25)
-      .map((c) => {
-        const channelTopic = c.topic?.trim();
-        const description = channelTopic ? channelTopic.slice(0, 50) : "Canale testuale";
-
-        return new StringSelectMenuOptionBuilder()
-          .setLabel(`#${c.name}`)
-          .setValue(c.name)
-          .setDescription(description);
-      });
-
-    // Escludi @everyone, bot-managed e ruoli soglia XP (sono 36 e riempirebbero tutti gli slot).
-    // Ordina per posizione crescente: i ruoli più bassi (es. @tutti, @membri) vengono prima,
-    // così le 25 opzioni disponibili contengono i ruoli effettivamente utili da pingare.
-    const guildRoles = guild.roles.cache
-      .filter((r) => r.name !== "@everyone" && !r.managed && !THRESHOLD_ROLE_ID_SET.has(r.id))
-      .sort((a, b) => a.position - b.position)
-      .first(25);
-
-    const roleOptions = guildRoles.map((r) =>
-      new StringSelectMenuOptionBuilder().setLabel(`@${r.name}`).setValue(r.name)
-    );
-    const pilgrimRoleOptions = [
-      new StringSelectMenuOptionBuilder()
-        .setLabel("Nessun ruolo pellegrini")
-        .setValue("none")
-        .setDescription("Non impostare alcun ruolo ospite"),
-      ...guildRoles.slice(0, 24).map((r) =>
-        new StringSelectMenuOptionBuilder().setLabel(`@${r.name}`).setValue(r.id)
-      ),
-    ];
-
     // ── Row builders ───────────────────────────────────────
-    const pollSelectRow = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
-      new StringSelectMenuBuilder()
+    const pollSelectRow = new ActionRowBuilder<ChannelSelectMenuBuilder>().addComponents(
+      new ChannelSelectMenuBuilder()
         .setCustomId("select_poll_channel")
         .setPlaceholder("Scegli il canale per i sondaggi…")
-        .addOptions(channelOptions)
+        .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
     );
 
-    const notifySelectRow = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
-      new StringSelectMenuBuilder()
+    const notifySelectRow = new ActionRowBuilder<ChannelSelectMenuBuilder>().addComponents(
+      new ChannelSelectMenuBuilder()
         .setCustomId("select_notify_channels")
         .setPlaceholder("Scegli i canali per le notifiche… (max 10)")
         .setMinValues(1)
-        .setMaxValues(Math.min(10, channelOptions.length))
-        .addOptions(channelOptions)
+        .setMaxValues(10)
+        .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
     );
 
     const durationSelectRow = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
@@ -156,20 +121,16 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
         )
     );
 
-    const roleSelectRow = roleOptions.length > 0
-      ? new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
-        new StringSelectMenuBuilder()
-          .setCustomId("select_role")
-          .setPlaceholder("Scegli il ruolo da pingare alla chiusura…")
-          .addOptions(roleOptions)
-      )
-      : null;
+    const roleSelectRow = new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(
+      new RoleSelectMenuBuilder()
+        .setCustomId("select_role")
+        .setPlaceholder("Scegli il ruolo da pingare alla chiusura…")
+    );
 
-    const pilgrimRoleSelectRow = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
-      new StringSelectMenuBuilder()
+    const pilgrimRoleSelectRow = new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(
+      new RoleSelectMenuBuilder()
         .setCustomId("select_pilgrim_role")
         .setPlaceholder("Scegli il ruolo usato per i pellegrini…")
-        .addOptions(pilgrimRoleOptions)
     );
 
     // ── Step 6: message buttons ────────────────────────────
@@ -230,18 +191,19 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     });
 
     collector.on("collect", async (i) => {
-      // ── Steps 1-5: StringSelect ──────────────────────────
-      if (i.isStringSelectMenu()) {
+      // ── Steps 1-5: Select Menus ──────────────────────────
+      if (i.isChannelSelectMenu()) {
         // Step 1 — Poll channel
         if (i.customId === "select_poll_channel" && step === 1) {
-          config.pollChannelName = i.values[0] ?? null;
+          config.pollChannelId = i.values[0] ?? null;
           step = 2;
+          const pollChannelMention = config.pollChannelId ? `<#${config.pollChannelId}>` : "";
           await i.update({
             embeds: [
               new EmbedBuilder()
                 .setTitle("⚙️ Impostazioni — Passo 2/6")
                 .setDescription(
-                  `✅ Canale sondaggi: **#${config.pollChannelName}**\n\n` +
+                  `✅ Canale sondaggi: ${pollChannelMention}\n\n` +
                   "Scegli i canali dove mandare la notifica quando escono nuovi sondaggi.\n" +
                   "Puoi selezionarne più d'uno."
                 )
@@ -252,14 +214,15 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 
           // Step 2 — Notify channels
         } else if (i.customId === "select_notify_channels" && step === 2) {
-          config.notifyChannelNames = i.values;
+          config.notifyChannelIds = i.values;
           step = 3;
+          const notifyChannelsMention = config.notifyChannelIds.map(id => `<#${id}>`).join(", ");
           await i.update({
             embeds: [
               new EmbedBuilder()
                 .setTitle("⚙️ Impostazioni — Passo 3/6")
                 .setDescription(
-                  `✅ Canali notifica: **${config.notifyChannelNames.map((n) => `#${n}`).join(", ")}**\n\n` +
+                  `✅ Canali notifica: **${notifyChannelsMention}**\n\n` +
                   "Per quanto tempo deve restare aperto il sondaggio prima di chiudersi automaticamente?\n" +
                   "Scegli **Nessun timer** per disabilitare la chiusura automatica."
                 )
@@ -267,28 +230,37 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
             ],
             components: [durationSelectRow],
           });
-
-          // Step 3 — Duration
-        } else if (i.customId === "select_duration" && step === 3) {
+        }
+      } else if (i.isRoleSelectMenu()) {
+        // Step 4 — Ping role
+        if (i.customId === "select_role" && step === 4) {
+          config.pingRoleId = i.values[0];
+          step = 5;
+          const pingRoleMention = config.pingRoleId ? `<@&${config.pingRoleId}>` : "";
+          await i.update({
+            embeds: [
+              new EmbedBuilder()
+                .setTitle("⚙️ Impostazioni — Passo 5/6")
+                .setDescription(
+                  `✅ Ruolo da pingare: ${pingRoleMention}\n\n` +
+                  "Quale ruolo identifica i pellegrini/ospiti nel server?"
+                )
+                .setColor(0x8b0000),
+            ],
+            components: [pilgrimRoleSelectRow],
+          });
+          // Step 5 — Pilgrim role
+        } else if (i.customId === "select_pilgrim_role" && step === 5) {
+          config.pilgrimRoleId = i.values[0];
+          step = 6;
+          saveConfig(config);
+          await i.update({ embeds: [buildStep6Embed()], components: [buildMessageButtons()] });
+        }
+      } else if (i.isStringSelectMenu()) {
+        // Step 3 — Duration
+        if (i.customId === "select_duration" && step === 3) {
           config.pollDurationHours = parseInt(i.values[0] ?? "0", 10);
           step = 4;
-
-          if (!roleSelectRow) {
-            step = 5;
-            await i.update({
-              embeds: [
-                new EmbedBuilder()
-                  .setTitle("⚙️ Impostazioni — Passo 5/6")
-                  .setDescription(
-                    "Quale ruolo identifica i pellegrini/ospiti nel server?\n" +
-                    "Scegli **Nessun ruolo pellegrini** se vuoi lasciarlo non configurato."
-                  )
-                  .setColor(0x8b0000),
-              ],
-              components: [pilgrimRoleSelectRow],
-            });
-            return;
-          }
 
           const durLabel = config.pollDurationHours > 0 ? `${config.pollDurationHours} ore` : "Nessun timer";
           await i.update({
@@ -297,45 +269,12 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
                 .setTitle("⚙️ Impostazioni — Passo 4/6")
                 .setDescription(
                   `✅ Durata sondaggio: **${durLabel}**\n\n` +
-                  "Quale ruolo deve essere menzionato quando i sondaggi si chiudono?\n" +
-                  "(es: @tutti, @clan, @membri)"
+                  "Quale ruolo deve essere menzionato quando i sondaggi si chiudono?"
                 )
                 .setColor(0x8b0000),
             ],
             components: [roleSelectRow],
           });
-
-          // Step 4 — Role
-        } else if (i.customId === "select_role" && step === 4) {
-          config.pingRoleName = i.values[0];
-          step = 5;
-          await i.update({
-            embeds: [
-              new EmbedBuilder()
-                .setTitle("⚙️ Impostazioni — Passo 5/6")
-                .setDescription(
-                  `✅ Ruolo da pingare: **@${config.pingRoleName}**\n\n` +
-                  "Quale ruolo identifica i pellegrini/ospiti nel server?\n" +
-                  "Scegli **Nessun ruolo pellegrini** se vuoi lasciarlo non configurato."
-                )
-                .setColor(0x8b0000),
-            ],
-            components: [pilgrimRoleSelectRow],
-          });
-        } else if (i.customId === "select_pilgrim_role" && step === 5) {
-          const selectedRoleId = i.values[0];
-          if (selectedRoleId === "none") {
-            delete config.pilgrimRoleId;
-            delete config.pilgrimRoleName;
-          } else {
-            const selectedRole = guild.roles.cache.get(selectedRoleId);
-            config.pilgrimRoleId = selectedRoleId;
-            config.pilgrimRoleName = selectedRole?.name;
-          }
-
-          step = 6;
-          saveConfig(config);
-          await i.update({ embeds: [buildStep6Embed()], components: [buildMessageButtons()] });
         }
 
         // ── Step 6: Buttons ──────────────────────────────────
@@ -403,20 +342,20 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     });
 
     collector.on("end", async (_, reason) => {
-    if (reason !== "done") {
-      try {
-        await interaction.editReply({
-          embeds: [
-            new EmbedBuilder()
-              .setTitle("⏰ Tempo scaduto")
-              .setDescription("Le impostazioni non sono state salvate completamente. Usa `/impostazioni` per riprovare.")
-              .setColor(0xffaa00),
-          ],
-          components: [],
-        });
-      } catch { /* message might be gone */ }
-    }
-  });
+      if (reason !== "done") {
+        try {
+          await interaction.editReply({
+            embeds: [
+              new EmbedBuilder()
+                .setTitle("⏰ Tempo scaduto")
+                .setDescription("Le impostazioni non sono state salvate completamente. Usa `/impostazioni` per riprovare.")
+                .setColor(0xffaa00),
+            ],
+            components: [],
+          });
+        } catch { /* message might be gone */ }
+      }
+    });
 
   } catch (error) {
     logger.error({ err: error }, "ERRORE COMANDO /IMPOSTAZIONI");
