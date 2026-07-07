@@ -21,6 +21,7 @@ import * as sondaggioCommand from "./commands/sondaggio.js";
 import * as impostazioniCommand from "./commands/impostazioni.js";
 import * as debugTempliCommand from "./commands/debug-templi.js";
 import * as fineCommand from "./commands/fine.js";
+import * as messaggioCondivisoCommand from "./commands/messaggio-condiviso.js";
 import * as roseCommand from "./commands/rose.js";
 import * as familyCommand from "./commands/family.js";
 import { BOT_CONFIG } from "./config.js";
@@ -36,6 +37,7 @@ type BotCommand =
   | typeof impostazioniCommand
   | typeof debugTempliCommand
   | typeof fineCommand
+  | typeof messaggioCondivisoCommand
   | typeof roseCommand
   | typeof familyCommand;
 
@@ -44,6 +46,7 @@ commands.set(sondaggioCommand.data.name, sondaggioCommand);
 commands.set(impostazioniCommand.data.name, impostazioniCommand);
 commands.set(debugTempliCommand.data.name, debugTempliCommand);
 commands.set(fineCommand.data.name, fineCommand);
+commands.set(messaggioCondivisoCommand.data.name, messaggioCondivisoCommand);
 commands.set(roseCommand.data.name, roseCommand);
 commands.set(familyCommand.data.name, familyCommand);
 
@@ -164,6 +167,7 @@ export async function startBot(): Promise<void> {
       impostazioniCommand.data.toJSON(),
       debugTempliCommand.data.toJSON(),
       fineCommand.data.toJSON(),
+      messaggioCondivisoCommand.data.toJSON(),
       roseCommand.data.toJSON(),
       familyCommand.data.toJSON(),
     ];
@@ -262,10 +266,19 @@ export async function startBot(): Promise<void> {
 
     if (interaction.isButton()) {
       const customId = interaction.customId;
+      if (customId.startsWith("sharedmsg:edit:")) {
+        await messaggioCondivisoCommand.handleButtonInteraction(interaction as ButtonInteraction);
+        return;
+      }
       if (customId === "rose_join" || customId === "rose_reserve" || customId === "rose_leave") {
         await roseCommand.handleButtonInteraction(interaction as ButtonInteraction);
         return;
       }
+    }
+
+    if (interaction.isModalSubmit() && interaction.customId.startsWith("sharedmsg:modal:")) {
+      await messaggioCondivisoCommand.handleModalSubmit(interaction);
+      return;
     }
 
     if (!interaction.isAutocomplete() && !interaction.isChatInputCommand()) return;
