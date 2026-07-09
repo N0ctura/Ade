@@ -18,6 +18,7 @@ export interface ActivePoll {
   channelId: string;
   introMessageId: string;
   messageIds: string[];
+  summaryMessageId?: string;
   questCount: number;
   questLabels: string[];
   /** URL immagine promo per ogni missione (stesso ordine di questLabels) */

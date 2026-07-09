@@ -27,6 +27,9 @@ export function cancelPollTimer(): void {
 const RIMESCOLO_IDX = -1;
 const EMBED_COLOR = 0x8b0000;
 const EMBED_FIELD_MAX = 1000;
+const FIXED_TIE_MESSAGE =
+  "⚖️ **Pareggio!** Le missioni {missioni} hanno lo stesso numero di voti.\n" +
+  "⏳ Attendete un **Co-Capo** per il verdetto finale.";
 
 interface VoteResult {
   winners: number[];
@@ -224,6 +227,7 @@ export async function closePoll(client: Client): Promise<void> {
 
   let resultText: string;
   let winnerImageUrl: string | undefined;
+  let tieMissions: Array<{ idx: number; label: string; imageUrl: string }> | undefined;
   const wasRimescolo = winners.length === 1 && winners[0] === RIMESCOLO_IDX;
 
   logger.info({ winners, wasRimescolo, questImageUrls: poll.questImageUrls }, "Dettagli vincitore");
@@ -236,7 +240,21 @@ export async function closePoll(client: Client): Promise<void> {
     const tiedLabels = winners
       .map((i) => (i === RIMESCOLO_IDX ? "🔀 Rimescolo" : (poll.questLabels[i] ?? `Missione ${i + 1}`)))
       .join(", ");
-    resultText = applyTemplate(messages.pareggio, { missioni: tiedLabels });
+    resultText = applyTemplate(FIXED_TIE_MESSAGE, { missioni: tiedLabels });
+
+    const missionIdxs = winners.filter((i) => i !== RIMESCOLO_IDX && i >= 0 && i < poll.questCount);
+    if (missionIdxs.length === 2) {
+      const a = missionIdxs[0]!;
+      const b = missionIdxs[1]!;
+      const aUrl = poll.questImageUrls?.[a];
+      const bUrl = poll.questImageUrls?.[b];
+      if (aUrl && bUrl) {
+        tieMissions = [
+          { idx: a, label: poll.questLabels[a] ?? `Missione ${a + 1}`, imageUrl: aUrl },
+          { idx: b, label: poll.questLabels[b] ?? `Missione ${b + 1}`, imageUrl: bUrl },
+        ];
+      }
+    }
   } else {
     const winnerIdx = winners[0]!;
     const winnerLabel = poll.questLabels[winnerIdx] ?? `Missione ${winnerIdx + 1}`;
@@ -286,7 +304,18 @@ export async function closePoll(client: Client): Promise<void> {
 
     await pollChannel.send({
       content: roleMention || undefined,
-      embeds: [closeEmbed],
+      embeds: [
+        closeEmbed,
+        ...(tieMissions
+          ? tieMissions.map((m, i) =>
+              new EmbedBuilder()
+                .setTitle(`⚖️ Missione in pareggio ${i + 1}/2`)
+                .setDescription(m.label)
+                .setImage(m.imageUrl)
+                .setColor(EMBED_COLOR)
+            )
+          : []),
+      ],
       allowedMentions: { roles: roleId ? [roleId] : [] },
     });
 

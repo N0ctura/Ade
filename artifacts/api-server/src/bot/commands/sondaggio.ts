@@ -111,9 +111,15 @@ export async function publishPoll(
     components: [selectRow],
   });
 
+  const summaryLines = [
+    `📊 **Conteggio voti (live)** — votanti: **0**`,
+    `ℹ️ Ancora nessun voto registrato.`,
+  ];
+  const summaryMsg: Message = await pollChannel.send({ content: summaryLines.join("\n") });
+
   return {
     introMessageId: pollMsg.id,
-    messageIds: [pollMsg.id],
+    messageIds: [pollMsg.id, summaryMsg.id],
     questLabels: labels,
     questImageUrls: imageUrls,
   };
@@ -218,6 +224,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     channelId: pollChannel.id,
     introMessageId,
     messageIds,
+    summaryMessageId: messageIds[1],
     questCount: quests.length,
     questLabels,
     questImageUrls,

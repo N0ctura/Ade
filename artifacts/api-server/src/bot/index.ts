@@ -25,7 +25,7 @@ import * as messaggioCondivisoCommand from "./commands/messaggio-condiviso.js";
 import * as roseCommand from "./commands/rose.js";
 import * as familyCommand from "./commands/family.js";
 import { BOT_CONFIG } from "./config.js";
-import { loadConfig, saveConfig, initStorage, type DeletedModifiedLog, type GuildLogsConfig } from "./storage.js";
+import { loadConfig, saveConfig, initStorage, type ActivePoll, type DeletedModifiedLog, type GuildLogsConfig } from "./storage.js";
 import { schedulePollClose } from "./poll-timer.js";
 import { fetchPlayerByUsername, fetchClanById } from "./wolvesville.js";
 import { generateProfileCard } from "./profile-card.js";
@@ -69,6 +69,43 @@ function timeAgo(dateStr: string | null | undefined): string {
 function formatDate(dateStr: string | null | undefined): string {
   if (!dateStr) return "Sconosciuta";
   return new Date(dateStr).toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
+
+function buildPollSummaryText(poll: ActivePoll): string {
+  const votes = poll.votes ?? {};
+  const counts = new Array<number>(poll.questCount).fill(0);
+  let rimescoloCount = 0;
+  for (const v of Object.values(votes)) {
+    if (v === -1) rimescoloCount++;
+    else if (v >= 0 && v < poll.questCount) counts[v] = (counts[v] ?? 0) + 1;
+  }
+  const totalVoters = Object.keys(votes).length;
+  const lines: string[] = [`📊 **Conteggio voti (live)** — votanti: **${totalVoters}**`];
+
+  if (totalVoters === 0) {
+    lines.push("ℹ️ Ancora nessun voto registrato.");
+    return lines.join("\n");
+  }
+
+  for (let i = 0; i < poll.questCount; i++) {
+    const c = counts[i] ?? 0;
+    if (c <= 0) continue;
+    lines.push(`• Missione ${i + 1}: **${c}** ${c === 1 ? "voto" : "voti"}`);
+  }
+  if (rimescoloCount > 0) {
+    lines.push(`• 🔀 Rimescolo: **${rimescoloCount}** ${rimescoloCount === 1 ? "voto" : "voti"}`);
+  }
+  return lines.join("\n");
+}
+
+async function updatePollSummaryMessage(client: Client, poll: ActivePoll): Promise<void> {
+  const summaryMessageId = poll.summaryMessageId ?? poll.messageIds[1];
+  if (!summaryMessageId) return;
+  const channel = await client.channels.fetch(poll.channelId).catch(() => null);
+  if (!channel || !channel.isTextBased()) return;
+  const msg = await channel.messages.fetch(summaryMessageId).catch(() => null);
+  if (!msg) return;
+  await msg.edit({ content: buildPollSummaryText(poll) });
 }
 
 export async function startBot(): Promise<void> {
@@ -243,6 +280,7 @@ export async function startBot(): Promise<void> {
       if (value === "rimescolo") {
         poll.votes[interaction.user.id] = -1;
         saveConfig(config);
+        await updatePollSummaryMessage(client, poll).catch(() => null);
         const verb = isChange ? "🔄 **Voto aggiornato!** Hai votato per il" : "🔀 **Voto registrato!** Hai votato per il";
         await interaction.reply({ content: `${verb} **Rimescolo**.`, ephemeral: true });
         return;
@@ -256,6 +294,7 @@ export async function startBot(): Promise<void> {
 
       poll.votes[interaction.user.id] = selectedIdx;
       saveConfig(config);
+      await updatePollSummaryMessage(client, poll).catch(() => null);
       const label = poll.questLabels[selectedIdx] ?? `Missione ${selectedIdx + 1}`;
       const msg = isChange
         ? `🔄 **Voto aggiornato!** Hai cambiato voto: **${label}**`
